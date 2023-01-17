@@ -1,0 +1,12 @@
+# Example file to run RAC on a device with actualizr installed
+[torizon]
+url = "https://dgw.pilot.torizon.io/ras"
+server_cert_path = "/var/sota/import/aroot.crt"
+client_cert_path = "/var/sota/import/client.pem"
+client_key_path = "/var/sota/import/pkey.pem"
+
+[device]
+ssh_host_port = "127.0.0.1:22"
+ssh_private_key_path = "/var/sota/import/device-key.sec"
+ssh_public_key_path = "/var/sota/import/device-key.pub"
+authorized_keys_path = "/var/sota/import/authorized-keys"

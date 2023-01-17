@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  ras-client:
+    image: simaom/rac-arm:latest-rs
+    environment:
+      DEBUG: "true"
+      RUST_LOG_STYLE: "always"
+    volumes:
+      - /home/torizon/.ssh/id_ed25519:/opt/rac/device-files/device-key.sec:ro
+      - /home/torizon/.ssh/id_ed25519.pub:/opt/rac/device-files/device-key.pub:ro
+      - /home/torizon/.ssh/authorized_keys:/opt/rac/device-files/authorized-keys
+      - /home/torizon/.ssh/known_hosts:/root/.ssh/known_hosts
+      - /var/sota/import/root.crt:/opt/rac/device-files/root.crt:ro
+      - /var/sota/import/client.pem:/opt/rac/device-files/client.pem:ro
+      - /var/sota/import/pkey.pem:/opt/rac/device-files/pkey.pem:ro
+      - /var/sota/import/gateway.url:/opt/rac/device-files/gateway.url:ro
