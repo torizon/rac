@@ -13,15 +13,7 @@ env_logger = "0.10.0"
 futures = "0.3.25"
 log = "0.4.17"
 reqwest = { version = "0.11.13", default_features = false, features = ["json", "rustls-tls-manual-roots", "hyper-rustls", "rustls"] }
-# russh = "0.34.0"
-# russh-keys = "0.22.0"
-# russh = { git = "https://github.com/warp-tech/russh.git", branch = "master" }
-# russh-keys = { git = "https://github.com/warp-tech/russh.git", branch = "master" }
-russh = { path = "/home/simao/code/russh/russh" }
-russh-keys = { path = "/home/simao/code/russh/russh-keys" }
+russh = { git = "https://github.com/warp-tech/russh.git", tag = "v0.35.0-beta.9" }
+russh-keys = { git = "https://github.com/warp-tech/russh.git", tag = "v0.35.0-beta.9" }
 serde = { version = "1.0.152", features = ["std", "derive"] }
 tokio = "1.23.0"
-# ssh2 = "0.9.3"
-# thrussh = "0.33.5"
-# thrussh = { path = "/home/simao/thrussh-0.33.5" }
-# thrussh-keys = "0.21.0"
