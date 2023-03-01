@@ -1,6 +1,5 @@
-FROM alpine:latest
-
-RUN apk --no-cache add bash
+# FROM --platform=linux/arm64 gcr.io/distroless/static-debian11
+FROM --platform=linux/arm64 alpine:latest
 
 WORKDIR /opt/rac
 

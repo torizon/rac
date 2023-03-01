@@ -1,39 +1,46 @@
-use std::path::PathBuf;
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use url::Url;
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TorizonConfig {
-    pub url: String,
+    pub url: Url,
     pub client_cert_path: PathBuf,
     pub client_key_path: PathBuf,
     pub server_cert_path: PathBuf,
+    #[serde(skip_serializing)]
+    pub namespace: Option<Uuid>,
+    #[serde(skip_serializing, default = "default_http_timeout")]
+    pub http_timeout: Duration,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeviceConfig {
-    pub ssh_host_port: String,
-    pub ssh_public_key_path: String,
-    pub ssh_private_key_path: String,
-    pub authorized_keys_path: String,
+    pub target_host_port: SocketAddr,
+    pub ssh_private_key_path: PathBuf,
+    pub authorized_keys_path: PathBuf,
+    #[serde(skip_serializing, default = "default_poll_timeout")]
+    pub poll_timeout: Duration,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Default)]
 pub struct RacConfig {
     pub torizon: TorizonConfig,
-    pub device: DeviceConfig
+    pub device: DeviceConfig,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SshSession {
-    pub authorized_pubkeys: Vec<String>,
+    pub authorized_pubkeys: Vec<ssh_key::PublicKey>,
     pub reverse_port: u16,
-    pub device_port: u16,
-    pub ra_server_url: String,
-    pub ra_server_ssh_pubkey: String,
+    pub ra_server_url: Url,
+    pub ra_server_ssh_pubkey: ssh_key::PublicKey,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeviceSession {
     pub ssh: SshSession,
 }
@@ -41,11 +48,46 @@ pub struct DeviceSession {
 #[derive(Deserialize, Debug)]
 pub struct SignedPayload<T> {
     pub signatures: Vec<String>,
-    pub signed: T
+    pub signed: T,
 }
-
 
 #[derive(Serialize)]
 pub struct DeviceKey {
-    pub key: String
+    pub key: ssh_key::PublicKey,
+}
+
+
+
+impl Default for TorizonConfig {
+    fn default() -> Self {
+        Self {
+            #[allow(clippy::unwrap_used)]
+            url: Url::parse("http://dgw.torizon.io").unwrap(),
+            client_cert_path: PathBuf::from("client.pem"),
+            client_key_path: PathBuf::from("client.key"),
+            server_cert_path: PathBuf::from("server.key"),
+            namespace: None,
+            http_timeout: default_http_timeout(),
+        }
+    }
+}
+
+impl Default for DeviceConfig {
+    fn default() -> Self {
+        Self {
+            #[allow(clippy::unwrap_used)]
+            target_host_port: "127.0.0.1:22".parse().unwrap(),
+            ssh_private_key_path: "device-key.sec".into(),
+            authorized_keys_path: "authorized_keys".into(),
+            poll_timeout: default_poll_timeout(),
+        }
+    }
+}
+
+fn default_poll_timeout() -> Duration {
+    Duration::from_secs(3)
+}
+
+fn default_http_timeout() -> Duration {
+    Duration::from_secs(10)
 }
