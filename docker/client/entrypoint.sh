@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 export RAC__DEVICE__SSH_HOST_PORT=$(/sbin/ip route|awk '/default/ { print $3 }'):22
 export RAC__TORIZON__URL=$(cat /opt/rac/device-files/gateway.url)/ras

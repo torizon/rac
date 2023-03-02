@@ -2,18 +2,42 @@
 name = "rac"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.68"
-async-trait = "0.1.60"
-config = { version = "0.13.3", default_features = false, features = ["toml"] }
+async-trait = "0.1.64"
+config = { version = "0.13.3", default-features = false, features = ["toml"] }
 env_logger = "0.10.0"
-futures = "0.3.25"
 log = "0.4.17"
-reqwest = { version = "0.11.13", default_features = false, features = ["json", "rustls-tls-manual-roots", "hyper-rustls", "rustls"] }
-russh = { git = "https://github.com/warp-tech/russh.git", tag = "v0.35.0-beta.9" }
-russh-keys = { git = "https://github.com/warp-tech/russh.git", tag = "v0.35.0-beta.9" }
+reqwest = { version = "0.11.13", default-features = false, features = ["json", "rustls-tls-manual-roots", "hyper-rustls"] }
+russh = { git = "https://github.com/warp-tech/russh.git", tag = "0.37.0-beta.1" }
+russh-keys = { git = "https://github.com/warp-tech/russh.git", tag = "0.37.0-beta.1" }
 serde = { version = "1.0.152", features = ["std", "derive"] }
-tokio = "1.23.0"
+ssh-key = { version = "0.5.1", features = ["serde", "ed25519"] }
+tokio = { version = "1.23.0", features = ["full"] }
+uuid = { version = "1.3.0", features = ["serde"] }
+color-eyre = { version = "0.6", default-features = false }
+http = "0.2.9"
+url = { version = "2.3.1", features = ["serde"] }
+chrono = "0.4.23"
+
+[build-dependencies]
+vergen = "7.5.1"
+
+# Needed for color-eyre
+[profile.dev.package.backtrace]
+opt-level = 3
+
+[dev-dependencies]
+axum = "0.6.7"
+pretty_assertions = "1"
+serde_json = "1.0.93"
+tempfile = "3.4.0"
+uuid = { version = "1.3.0", features = ["serde", "v4"] }
+
+[package.metadata.cross.build]
+xargo = false
+build-std = false
+default-target = "x86_64-unknown-linux-musl"

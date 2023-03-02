@@ -1,0 +1,62 @@
+stages:
+  - test
+  - build
+
+variables:
+  CARGO_HOME: .cargo-home/
+  CARGO_TERM_COLOR: always
+
+image: registry.gitlab.com/torizon-platform/ci-container-build:rust-0.0.1
+
+default:
+  cache:
+    key: rac-build-$CI_JOB_NAME
+    untracked: true
+    when: always
+    paths:
+      - target/
+      - .cargo-home/bin/
+      - .cargo-home/registry/index/
+      - .cargo-home/registry/cache/
+      - .cargo-home/git/db/
+
+test:
+  stage: test
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "master"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - cargo clippy -- -Wclippy::pedantic
+    - cargo test
+
+.cargo-build:
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "master"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  artifacts:
+    paths:
+      - rac-$TARGET_SHORT
+  script:
+    - cargo build --target $TARGET --release
+    - mv target/$TARGET/release/rac rac-$TARGET_SHORT
+
+build x86:
+  stage: build
+  extends: .cargo-build
+  variables:
+    TARGET: x86_64-unknown-linux-musl
+    TARGET_SHORT: x86_64-linux-musl
+
+build aarch64:
+  stage: build
+  extends: .cargo-build
+  variables:
+    TARGET: aarch64-unknown-linux-musl
+    TARGET_SHORT: aarch65-linux-musl
+
+build armv7:
+  stage: build
+  extends: .cargo-build
+  variables:
+    TARGET: armv7-unknown-linux-musleabihf
+    TARGET_SHORT: armv7-linux-musleabihf
