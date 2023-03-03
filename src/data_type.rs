@@ -1,8 +1,16 @@
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
+use crate::session_handler::*;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use uuid::Uuid;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionType {
+    Embedded(EmbeddedSession),
+    TargetHost(TargetHostSession),
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TorizonConfig {
@@ -18,15 +26,13 @@ pub struct TorizonConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeviceConfig {
-    pub target_host_port: SocketAddr,
     pub ssh_private_key_path: PathBuf,
-    pub authorized_keys_path: PathBuf,
     #[serde(skip_serializing, default = "default_poll_timeout")]
     pub poll_timeout: Duration,
+    pub session: SessionType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct RacConfig {
     pub torizon: TorizonConfig,
     pub device: DeviceConfig,
@@ -56,8 +62,6 @@ pub struct DeviceKey {
     pub key: ssh_key::PublicKey,
 }
 
-
-
 impl Default for TorizonConfig {
     fn default() -> Self {
         Self {
@@ -75,12 +79,20 @@ impl Default for TorizonConfig {
 impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
-            #[allow(clippy::unwrap_used)]
-            target_host_port: "127.0.0.1:22".parse().unwrap(),
             ssh_private_key_path: "device-key.sec".into(),
-            authorized_keys_path: "authorized_keys".into(),
             poll_timeout: default_poll_timeout(),
+            session: SessionType::default(),
         }
+    }
+}
+
+impl Default for SessionType {
+    fn default() -> Self {
+        SessionType::TargetHost(TargetHostSession {
+            #[allow(clippy::unwrap_used)]
+            host_port: "127.0.0.1:22".parse().unwrap(),
+            authorized_keys_path: "authorized_keys".into(),
+        })
     }
 }
 

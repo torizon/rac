@@ -8,9 +8,12 @@ use std::time::Duration;
 
 use config::Config;
 use log::*;
-use rac::authorized_keys;
 use rac::ras_client::*;
 use rac::{data_type::RacConfig, device_keys};
+
+// TODO: Allow ssh params from server (authenticate with director)
+// TODO: Set keep alive tcp
+// TODO: Use LISTEN_FS to get files
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -19,8 +22,7 @@ async fn main() {
     }
 
     env_logger::init();
-    #[allow(clippy::unwrap_used)]
-    color_eyre::install().unwrap();
+    color_eyre::install().expect("could no initialize color_eyre");
 
     let file = if let Ok(f) = std::env::var("CONFIG_FILE") {
         f
@@ -50,13 +52,16 @@ async fn main() {
         }
     }
 
+    rac_cfg
+        .device
+        .session
+        .ready()
+        .await
+        .expect("could not start session handler");
+
     let ras_client = RasClient::with_tls(rac_cfg.clone()).expect("could not create RasClient");
 
-    authorized_keys::update_keys(&rac_cfg.device.authorized_keys_path, &vec![])
-        .await
-        .expect("could not reset authorized keys");
-
-    let device_pubkey = device_keys::read_or_create(&rac_cfg.device.ssh_private_key_path)
+    let device_pubkey = device_keys::read_or_create_pubkey(&rac_cfg.device.ssh_private_key_path)
         .await
         .expect("could not read/generate device ssh pubkey");
 
@@ -82,18 +87,6 @@ async fn main() {
         if let Some(device_session) = session.unwrap() {
             debug!("{device_session:?}");
             info!("Received new session");
-            let ssh_session = &device_session.ssh;
-
-            if let Err(e) = authorized_keys::update_keys(
-                &rac_cfg.device.authorized_keys_path,
-                &ssh_session.authorized_pubkeys,
-            )
-            .await
-            {
-                error!("Could not update authorized_keys on local system: {}", e);
-                tokio::time::sleep(Duration::from_secs(3)).await;
-                continue;
-            }
 
             match rac::keep_session_loop(&rac_cfg, &ras_client, &device_session).await {
                 Ok(_) => info!("ssh session closed"),

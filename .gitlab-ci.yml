@@ -27,6 +27,7 @@ test:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
     - cargo clippy -- -Wclippy::pedantic
+    - cargo fmt --check
     - cargo test
 
 .cargo-build:

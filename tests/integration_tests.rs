@@ -1,20 +1,31 @@
-
 mod common;
 
-use std::{net::SocketAddr, sync::{Arc, Mutex}, time::Duration, str::FromStr};
+use std::{
+    net::SocketAddr,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use color_eyre::eyre;
 use http::StatusCode;
-use pretty_assertions::assert_eq;
 use log::*;
+use pretty_assertions::assert_eq;
 
 use axum::{
+    extract::State,
+    response::{IntoResponse, Response},
     routing::get,
-    Json, Router, extract::State, response::{Response, IntoResponse},
+    Json, Router,
 };
-use rac::{data_type::{RacConfig, DeviceSession, SshSession}, ras_client::RasClient, device_keys};
-use russh::server::{Session, Auth, Server};
+use rac::{
+    data_type::{DeviceSession, RacConfig, SessionType, SshSession},
+    device_keys,
+    ras_client::RasClient,
+    session_handler::TargetHostSession,
+};
+use russh::server::{Auth, Server, Session};
 use ssh_key::rand_core::OsRng;
 use tokio::{net::TcpListener, sync::OnceCell};
 use uuid::Uuid;
@@ -27,27 +38,21 @@ struct DirectorState {
 }
 
 async fn get_sessions(State(state): State<Arc<DirectorState>>) -> Response {
-
     let session = state.current_session.lock().unwrap();
 
     if let Some(ref dev_sess) = *session {
-        return Json(dev_sess.clone()).into_response()
+        return Json(dev_sess.clone()).into_response();
     }
 
     StatusCode::NOT_FOUND.into_response()
 }
 
 fn fake_ras(state: Arc<DirectorState>) -> Router {
-
     Router::new()
         .route("/sessions", get(get_sessions))
         .with_state(state)
-        .route(
-            "/ok",
-            get(|| async { "OK".to_string() })
-        )
+        .route("/ok", get(|| async { "OK".to_string() }))
 }
-
 
 type Result<T> = color_eyre::Result<T>;
 
@@ -56,12 +61,11 @@ struct DeviceSshServer {}
 impl russh::server::Server for DeviceSshServer {
     type Handler = DeviceConnection;
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
-        DeviceConnection { }
+        DeviceConnection {}
     }
 }
 
 async fn start_device_ssh() -> (SocketAddr, ssh_key::PublicKey) {
-
     let (send, recv) = tokio::sync::oneshot::channel::<u16>();
 
     let secret_key = ssh_key::PrivateKey::random(OsRng, ssh_key::Algorithm::Ed25519).unwrap();
@@ -84,8 +88,7 @@ async fn start_device_ssh() -> (SocketAddr, ssh_key::PublicKey) {
             let server = sh.new_client(socket.peer_addr().ok());
 
             match russh::server::run_stream(config, socket, server).await {
-                Err(err) =>
-                    debug!("session could not be started with error: {}", err),
+                Err(err) => debug!("session could not be started with error: {}", err),
                 Ok(session) => {
                     tokio::spawn(async {
                         if let Err(err) = session.await {
@@ -125,12 +128,15 @@ impl russh::server::Handler for DeviceConnection {
                 let (mut ingress, addr) = server.accept().await.unwrap();
 
                 tokio::spawn(async move {
-                    let channel = session_handle.channel_open_forwarded_tcpip(
-                        "127.0.0.1",
-                        port,
-                        addr.ip().to_string(),
-                        addr.port() as u32,
-                    ).await.unwrap();
+                    let channel = session_handle
+                        .channel_open_forwarded_tcpip(
+                            "127.0.0.1",
+                            port,
+                            addr.ip().to_string(),
+                            addr.port() as u32,
+                        )
+                        .await
+                        .unwrap();
 
                     let mut egress = channel.into_stream();
 
@@ -150,10 +156,7 @@ impl russh::server::Handler for DeviceConnection {
         _user: &str,
         _public_key: &russh_keys::key::PublicKey,
     ) -> Result<(Self, Auth)> {
-        Ok((
-            self,
-            russh::server::Auth::Accept,
-        ))
+        Ok((self, russh::server::Auth::Accept))
     }
 }
 
@@ -162,7 +165,10 @@ fn find_open_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
-async fn start_ras(ssh_host: SocketAddr, public_key: ssh_key::PublicKey) -> (SocketAddr, Arc<DirectorState>) {
+async fn start_ras(
+    ssh_host: SocketAddr,
+    public_key: ssh_key::PublicKey,
+) -> (SocketAddr, Arc<DirectorState>) {
     let listener = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -173,15 +179,21 @@ async fn start_ras(ssh_host: SocketAddr, public_key: ssh_key::PublicKey) -> (Soc
             ssh: SshSession {
                 authorized_pubkeys: vec![public_key.clone()],
                 reverse_port: find_open_port().unwrap(),
-                ra_server_url: Url::parse(&format!("ssh://{}@{}:{}",
-                                                   device_id,
-                                                   &ssh_host.ip(), &ssh_host.port())).unwrap(),
+                ra_server_url: Url::parse(&format!(
+                    "ssh://{}@{}:{}",
+                    device_id,
+                    &ssh_host.ip(),
+                    &ssh_host.port()
+                ))
+                .unwrap(),
                 ra_server_ssh_pubkey: public_key,
-            }
+            },
         }
     };
 
-    let director_state = Arc::new(DirectorState{current_session: Arc::new(Mutex::new(Some(device_session)))});
+    let director_state = Arc::new(DirectorState {
+        current_session: Arc::new(Mutex::new(Some(device_session))),
+    });
 
     let moved_state = director_state.clone();
 
@@ -196,7 +208,6 @@ async fn start_ras(ssh_host: SocketAddr, public_key: ssh_key::PublicKey) -> (Soc
     (addr, director_state)
 }
 
-
 static ONCE: OnceCell<()> = OnceCell::const_new();
 
 // This starts separate fake ras/http and ras/ssh servers. This is not
@@ -205,7 +216,8 @@ async fn setup() -> (RacConfig, Arc<DirectorState>) {
     ONCE.get_or_init(|| async {
         env_logger::init();
         color_eyre::install().unwrap();
-    }).await;
+    })
+    .await;
 
     let (ssh_addr, public_key) = start_device_ssh().await;
 
@@ -214,7 +226,10 @@ async fn setup() -> (RacConfig, Arc<DirectorState>) {
     let mut rac_config = RacConfig::default();
 
     rac_config.torizon.url = Url::from_str(&format!("http://{ras_addr}")).unwrap();
-    rac_config.device.target_host_port = ras_addr;
+    rac_config.device.session = SessionType::TargetHost(TargetHostSession {
+        authorized_keys_path: "/tmp/mykeys".into(),
+        host_port: ras_addr,
+    });
 
     (rac_config, director_state)
 }
@@ -232,12 +247,16 @@ async fn full_happy_path() {
 
     let session = ras_client.get_session().await.unwrap().unwrap();
 
-    device_keys::read_or_create(&rac_config.device.ssh_private_key_path).await.unwrap();
+    device_keys::read_or_create(&rac_config.device.ssh_private_key_path)
+        .await
+        .unwrap();
 
     let session_rport = session.ssh.reverse_port;
 
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &ras_client, &session).await.unwrap();
+        rac::keep_session_loop(&rac_config, &ras_client, &session)
+            .await
+            .unwrap();
     });
 
     info!("Sleeping to wait for session loop to get the session");
@@ -258,7 +277,10 @@ async fn full_happy_path() {
     }
 
     if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
-        panic!("session did not end successfully after 5 seconds: {:?}", err)
+        panic!(
+            "session did not end successfully after 5 seconds: {:?}",
+            err
+        )
     }
 }
 
@@ -270,10 +292,14 @@ async fn test_keys_changed() {
 
     let session = ras_client.get_session().await.unwrap().unwrap();
 
-    device_keys::read_or_create(&rac_config.device.ssh_private_key_path).await.unwrap();
+    device_keys::read_or_create(&rac_config.device.ssh_private_key_path)
+        .await
+        .unwrap();
 
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &ras_client, &session).await.unwrap();
+        rac::keep_session_loop(&rac_config, &ras_client, &session)
+            .await
+            .unwrap();
     });
 
     info!("Sleeping to wait for session loop to get the session");
@@ -281,11 +307,14 @@ async fn test_keys_changed() {
 
     {
         let mut current_session = director_state.current_session.lock().unwrap();
-        let session  = current_session.as_mut().unwrap();
+        let session = current_session.as_mut().unwrap();
         session.ssh.authorized_pubkeys.clear();
     }
 
     if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
-        panic!("session did not end successfully after 5 seconds: {:?}", err)
+        panic!(
+            "session did not end successfully after 5 seconds: {:?}",
+            err
+        )
     }
 }

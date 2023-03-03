@@ -7,7 +7,9 @@
 pub mod authorized_keys;
 pub mod data_type;
 pub mod device_keys;
+pub mod embedded_server;
 pub mod ras_client;
+pub mod session_handler;
 pub mod ssh;
 
 use std::collections::HashSet;
@@ -81,8 +83,14 @@ fn session_still_valid(old: &SshSession, new: Option<&SshSession>) -> ValidSessi
         return ValidSession::InvalidKeysChanged;
     }
 
-    let old_set: HashSet<String> = old_keys.iter().flat_map(ssh_key::PublicKey::to_openssh).collect();
-    let new_set: HashSet<String> = new_keys.iter().flat_map(ssh_key::PublicKey::to_openssh).collect();
+    let old_set: HashSet<String> = old_keys
+        .iter()
+        .flat_map(ssh_key::PublicKey::to_openssh)
+        .collect();
+    let new_set: HashSet<String> = new_keys
+        .iter()
+        .flat_map(ssh_key::PublicKey::to_openssh)
+        .collect();
 
     if !old_set.is_superset(&new_set) {
         return ValidSession::InvalidKeysChanged;

@@ -6,7 +6,6 @@ use eyre::bail;
 use log::*;
 use reqwest::{IntoUrl, StatusCode};
 
-
 pub struct RasClient {
     http_client: reqwest::Client,
     config: RacConfig,
@@ -68,14 +67,9 @@ impl RasClient {
             env!("VERGEN_RUSTC_SEMVER"),
             env!("VERGEN_CARGO_TARGET_TRIPLE"),
         )
-        
     }
 
-    fn http_request<U: IntoUrl>(
-        &self,
-        method: reqwest::Method,
-        url: U,
-    ) -> reqwest::RequestBuilder {
+    fn http_request<U: IntoUrl>(&self, method: reqwest::Method, url: U) -> reqwest::RequestBuilder {
         let mut req = self.http_client.request(method, url);
 
         if let Some(ref ns) = self.config.torizon.namespace {

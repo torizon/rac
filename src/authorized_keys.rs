@@ -1,4 +1,5 @@
 use crate::Result;
+use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
 use log::*;
 use ssh_key::PublicKey;
@@ -6,7 +7,6 @@ use std::path::Path;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
-use color_eyre::eyre::eyre;
 
 // TODO: Use async, we only have one thread!
 pub async fn update_keys(
@@ -65,8 +65,8 @@ mod test {
     use pretty_assertions::assert_eq;
     use ssh_key::{rand_core::OsRng, PublicKey};
     use std::fs::File;
-    use std::io::Read;
     use std::io::BufRead;
+    use std::io::Read;
     use std::io::Write;
 
     fn read_all_keys<R: Read>(file: R) -> Vec<PublicKey> {
