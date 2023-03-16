@@ -8,11 +8,7 @@ use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
 
-// TODO: Use async, we only have one thread!
-pub async fn update_keys(
-    authorized_keys: impl AsRef<Path>,
-    new_keys: &Vec<PublicKey>,
-) -> Result<()> {
+pub async fn update_keys(authorized_keys: impl AsRef<Path>, new_keys: &[PublicKey]) -> Result<()> {
     debug!("updating local device authorized keys");
     let path = authorized_keys.as_ref();
 
@@ -20,6 +16,7 @@ pub async fn update_keys(
         .read(true)
         .write(true)
         .create(true)
+        .mode(0o644)
         .open(path)
         .await
         .wrap_err("opening authorized keys file")?;
@@ -60,6 +57,7 @@ pub async fn update_keys(
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::unwrap_used)]
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -97,7 +95,7 @@ mod test {
             .unwrap();
         file.as_file().flush().unwrap();
 
-        update_keys(&file.path(), &vec![]).await.unwrap();
+        update_keys(&file.path(), &[]).await.unwrap();
 
         let file = file.reopen().unwrap();
 
@@ -120,7 +118,7 @@ mod test {
             .unwrap();
         file.flush().unwrap();
 
-        update_keys(&file.path(), &vec![]).await.unwrap();
+        update_keys(&file.path(), &[]).await.unwrap();
 
         let file = file.reopen().unwrap();
 
@@ -137,7 +135,7 @@ mod test {
         let mut new_key = new_key();
         new_key.set_comment("my comment");
 
-        update_keys(&file.path(), &vec![new_key]).await.unwrap();
+        update_keys(&file.path(), &[new_key]).await.unwrap();
 
         let keys = read_all_keys(&file);
 
@@ -155,11 +153,11 @@ mod test {
         file.close().unwrap();
 
         let new_key = new_key();
-        update_keys(&path, &vec![new_key.clone()]).await.unwrap();
+        update_keys(&path, &[new_key.clone()]).await.unwrap();
 
         let file = File::open(&path).unwrap();
         let mut keys = read_all_keys(&file);
 
-        assert_eq!(keys.pop().unwrap().key_data(), new_key.key_data())
+        assert_eq!(keys.pop().unwrap().key_data(), new_key.key_data());
     }
 }

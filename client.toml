@@ -4,7 +4,6 @@ server_cert_path = "device-files/root.crt"
 client_cert_path = "device-files/client.pem"
 client_key_path = "device-files/pkey.pem"
 
-
 [device]
 # If this file does not exist, a new key will be generated and saved to this file
 ssh_private_key_path = "./device-key-01.sec"
@@ -13,5 +12,10 @@ ssh_private_key_path = "./device-key-01.sec"
 # host_port = "127.0.0.1:22"
 # authorized_keys_path = "./authorized-keys"
 
-[device.session.embedded]
-server_key_path = "embedded-rac-key.sec"
+# [device.session.embedded]
+# server_key_path = "embedded-rac-key.sec"
+# shell = "/usr/bin/fish"
+
+# [device.session.spawned_sshd]
+# sshd_path = "/usr/bin/sshd"
+# config_dir = "./run/rac"

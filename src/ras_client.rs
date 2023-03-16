@@ -84,7 +84,7 @@ impl RasClient {
         let url = self.config.torizon.url.join("public-keys")?;
         let mut req = self.http_request(reqwest::Method::POST, url);
 
-        debug!(
+        info!(
             "Adding device public key to ras: {}",
             pub_key.fingerprint(ssh_key::HashAlg::default()),
         );

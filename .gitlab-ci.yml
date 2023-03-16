@@ -27,7 +27,7 @@ test:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
     - cargo clippy -- -Wclippy::pedantic
-    - cargo fmt --check
+    # - cargo fmt --check Disabled for now, need to add rustup component add rustfmt to container
     - cargo test
 
 .cargo-build:

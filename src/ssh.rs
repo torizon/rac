@@ -59,6 +59,7 @@ impl client::Handler for Client {
         match self.session_type.clone() {
             SessionType::Embedded(session) => session.handle(&self, channel).await?,
             SessionType::TargetHost(session) => session.handle(&self, channel).await?,
+            SessionType::SpawnedSshd(session) => session.handle(&self, channel).await?,
         }
 
         Ok((self, session))
@@ -91,7 +92,7 @@ pub async fn start(
 
     let shell = if let SessionType::Embedded(EmbeddedSession { shell, .. }) = &config.device.session
     {
-        shell.to_owned()
+        Some(shell.clone())
     } else {
         None
     };

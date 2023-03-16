@@ -10,6 +10,7 @@ use uuid::Uuid;
 pub enum SessionType {
     Embedded(EmbeddedSession),
     TargetHost(TargetHostSession),
+    SpawnedSshd(SpawnedSshdSession),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -91,7 +92,7 @@ impl Default for SessionType {
         SessionType::TargetHost(TargetHostSession {
             #[allow(clippy::unwrap_used)]
             host_port: "127.0.0.1:22".parse().unwrap(),
-            authorized_keys_path: "authorized_keys".into(),
+            authorized_keys_path: "/home/torizon/.ssh/authorized_keys2".into(),
         })
     }
 }

@@ -47,10 +47,11 @@ impl russh::server::Server for DeviceSshServer {
     }
 }
 
+#[derive(Debug)]
 struct PtySessionRequest {
     term: String,
     size_rx: UnboundedReceiver<PtySize>,
-    shell: Option<PathBuf>,
+    shell: PathBuf,
 }
 
 struct DeviceConnection {
@@ -63,7 +64,7 @@ struct DeviceConnection {
 
 impl DeviceConnection {
     async fn spawn_shell(
-        mut req: PtySessionRequest,
+        mut pty_request: PtySessionRequest,
         channel: Channel<Msg>,
         session: russh::server::Handle,
     ) -> Result<()> {
@@ -71,16 +72,14 @@ impl DeviceConnection {
         let channel_stream = channel.into_stream();
         let (client_read, client_write) = tokio::io::split(channel_stream);
 
-        debug!("{term} requested", term = &req.term);
+        debug!("{term} requested", term = &pty_request.term);
 
-        let shell = req.shell.unwrap_or("/usr/bin/bash".into());
-
-        let mut cmd = CommandBuilder::new(&shell);
-        cmd.env("TERM", req.term);
+        let mut cmd = CommandBuilder::new(&pty_request.shell);
+        cmd.env("TERM", pty_request.term);
 
         let pty_system = native_pty_system();
 
-        let size = req
+        let size = pty_request
             .size_rx
             .recv()
             .await
@@ -121,7 +120,7 @@ impl DeviceConnection {
         });
 
         let size_handler = tokio::task::spawn(async move {
-            while let Some(size) = req.size_rx.recv().await {
+            while let Some(size) = pty_request.size_rx.recv().await {
                 if let Err(err) = pair.master.resize(size) {
                     warn!("could not resize pty: {err:#?}");
                 }
@@ -242,22 +241,28 @@ impl russh::server::Handler for DeviceConnection {
     ) -> Result<(Self, Session)> {
         info!("got pty_request on {channel:?}");
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (size_tx, size_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        tx.send(PtySize {
+        size_tx.send(PtySize {
             rows: row_height.try_into()?,
             cols: col_width.try_into()?,
             pixel_width: pix_width.try_into()?,
             pixel_height: pix_height.try_into()?,
         })?;
 
+        let shell = if let Some(ref s) = self.shell {
+            s.clone()
+        }else {
+            bail!("configuration error, pty requested but shell not set")
+        };
+
         self.pty_session_req = Some(PtySessionRequest {
             term: term.to_owned(),
-            size_rx: rx,
-            shell: self.shell.clone(),
+            size_rx,
+            shell,
         });
 
-        self.pty_size_tx = Some(tx);
+        self.pty_size_tx = Some(size_tx);
 
         Ok((self, session))
     }
@@ -308,7 +313,7 @@ where
             #[allow(clippy::unwrap_used)]
             let key = russh_keys::key::KeyPair::generate_ed25519().unwrap();
             let fingerprint = key.clone_public_key()?.fingerprint();
-            info!("embedded server private key not provided, generated one for the session: fingerprint: {}", fingerprint);
+            info!("embedded server private key path not provided, generated one for the session: fingerprint: {}", fingerprint);
             key
         }
     };
@@ -325,10 +330,7 @@ where
 
     let handler = server.new_client_noaddr();
 
-    // TODO: this doesn't return anything useful, or does it?
     russh::server::run_stream(config, stream, handler)
         .await?
-        .await?;
-
-    Ok(())
+        .await
 }
