@@ -1946,7 +1946,8 @@ dependencies = [
 
 [[package]]
 name = "russh"
-version = "0.37.1"
+version = "0.37.0-beta.1"
+source = "git+https://github.com/warp-tech/russh.git?tag=0.37.0-beta.1#719afe6b8249d0604dbcf9f8f835cfdb08cadf91"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1980,6 +1981,7 @@ dependencies = [
 [[package]]
 name = "russh-cryptovec"
 version = "0.7.0"
+source = "git+https://github.com/warp-tech/russh.git?tag=0.37.0-beta.1#719afe6b8249d0604dbcf9f8f835cfdb08cadf91"
 dependencies = [
  "libc",
  "winapi",
@@ -1987,7 +1989,8 @@ dependencies = [
 
 [[package]]
 name = "russh-keys"
-version = "0.37.1"
+version = "0.37.0-beta.1"
+source = "git+https://github.com/warp-tech/russh.git?tag=0.37.0-beta.1#719afe6b8249d0604dbcf9f8f835cfdb08cadf91"
 dependencies = [
  "aes",
  "bcrypt-pbkdf",

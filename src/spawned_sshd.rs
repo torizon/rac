@@ -1,4 +1,5 @@
 use std::{
+    fs::Permissions,
     future::Future,
     io::ErrorKind,
     path::{Path, PathBuf},
@@ -6,15 +7,14 @@ use std::{
     time::Duration,
 };
 
+use std::os::unix::prelude::PermissionsExt;
+
 use color_eyre::Report;
 use eyre::{bail, Context};
 use futures::FutureExt;
 use log::{debug, info, warn};
 use russh::{client::Msg, Channel};
-use ssh_key::{
-    rand_core::{OsRng, RngCore},
-    PublicKey,
-};
+use ssh_key::PublicKey;
 use tokio::{
     fs::OpenOptions,
     io::AsyncWriteExt,
@@ -24,18 +24,17 @@ use tokio::{
 
 use std::os::unix::ffi::OsStrExt;
 
-use crate::{
-    authorized_keys, device_keys,
-    session_handler::{self, LocalSshSessionHandle},
-    Result,
-};
+use crate::{authorized_keys, device_keys, local_session::SpawnedSshdSession, Result};
 
 async fn write_config_file(
     port: u16,
-    config_dir: &Path,
-    host_key_path: &Path,
+    config: &SpawnedSshdSession,
     authorized_keys_path: &Path,
 ) -> Result<PathBuf> {
+    let host_key_path = ensure_host_key_exists(&config.config_dir, config.host_key_path.as_deref())
+        .await
+        .wrap_err("ensuring host key exists and is valid")?;
+
     let host_key_path = std::fs::canonicalize(host_key_path)?;
     let host_key_path = String::from_utf8_lossy(host_key_path.as_os_str().as_bytes());
     let authorized_keys_path = std::fs::canonicalize(authorized_keys_path)?;
@@ -46,17 +45,19 @@ async fn write_config_file(
 Port {port}
 ListenAddress 127.0.0.1
 PidFile none
+StrictModes {strict}
 HostKey {host_key_path}
 PermitRootLogin no
 AuthorizedKeysFile {authorized_keys_path}
 PasswordAuthentication no
-UsePAM no
 AllowAgentForwarding no
 AllowTcpForwarding yes
 Subsystem       sftp    internal-sftp
-"#
+PrintMotd  no
+"#,
+        strict = if config.strict_mode { "yes" } else { "no" }
     );
-    let config_file = config_dir.join("sshd.conf");
+    let config_file = config.config_dir.join("sshd.conf");
 
     if tokio::fs::try_exists(&config_file).await? {
         warn!("config file exists");
@@ -67,7 +68,7 @@ Subsystem       sftp    internal-sftp
         .write(true)
         .create(true)
         .truncate(true)
-        .mode(0o644)
+        .mode(0o600)
         .open(&config_file)
         .await?;
 
@@ -86,8 +87,15 @@ async fn update_authorized_keys(config_dir: &Path, keys: &[PublicKey]) -> Result
     Ok(authorized_keys_path)
 }
 
-async fn ensure_host_key_exists(config_dir: &Path) -> Result<PathBuf> {
-    let path = config_dir.join("host_key_ed25519");
+async fn ensure_host_key_exists(
+    config_dir: &Path,
+    host_key_path: Option<&Path>,
+) -> Result<PathBuf> {
+    let path = if let Some(path) = host_key_path {
+        path.into()
+    } else {
+        config_dir.join("host_key_ed25519")
+    };
 
     device_keys::read_or_create(&path).await?;
 
@@ -96,7 +104,6 @@ async fn ensure_host_key_exists(config_dir: &Path) -> Result<PathBuf> {
 
 async fn find_free_port() -> Result<u16> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
-    dbg!(listener.local_addr()?.port());
     Ok(listener.local_addr()?.port())
 }
 
@@ -118,21 +125,6 @@ pub(crate) async fn ensure_sshd_chan_ready(port: u16) -> Result<TcpStream> {
     }
 
     bail!("could not connect to sshd after {tries} tries");
-}
-
-pub(crate) async fn start___<'a>(
-    sshd_path: &'a Path,
-    config_dir: &'a Path,
-) -> Result<(u16, impl Future<Output = Result<ExitStatus>>)> {
-    let (port, handle) = spawn_sshd(sshd_path, config_dir, &[])
-        .await
-        .wrap_err("error forking sshd on")?;
-
-    // let f = async move {
-    //     handle.await.map(|_| ()) // TODO: Log exit status
-    // };
-
-    Ok((port, handle))
 }
 
 pub(crate) async fn connect_channel(
@@ -161,40 +153,29 @@ pub(crate) async fn connect_channel(
     Ok(())
 }
 
-async fn spawn_sshd(
-    sshd_path: &Path,
-    config_dir: &Path,
+pub(crate) async fn spawn_sshd(
+    config: &SpawnedSshdSession,
     allowed_keys: &[PublicKey],
 ) -> Result<(u16, impl Future<Output = Result<ExitStatus>>)> {
-    tokio::fs::create_dir_all(&config_dir)
+    tokio::fs::create_dir_all(&config.config_dir)
         .await
-        .wrap_err("creating config_dir")?;
+        .wrap_err(format!("creating config_dir: {:?}", config.config_dir))?;
 
-    let authorized_keys_path = update_authorized_keys(config_dir, allowed_keys).await?;
+    tokio::fs::set_permissions(&config.config_dir, Permissions::from_mode(0o700)).await?;
 
-    let host_key_path = ensure_host_key_exists(config_dir)
-        .await
-        .wrap_err("ensuring host key exists and is valid")?;
+    let authorized_keys_path = update_authorized_keys(&config.config_dir, allowed_keys).await?;
 
     let free_port = find_free_port().await?;
 
     debug!("spawning sshd on port {free_port}");
 
-    let config_file = write_config_file(
-        free_port,
-        config_dir,
-        &host_key_path,
-        &authorized_keys_path,
-    )
-    .await?;
+    let config_file = write_config_file(free_port, config, &authorized_keys_path).await?;
 
     let config_file_path = String::from_utf8_lossy(config_file.as_os_str().as_bytes()).to_string();
 
-    dbg!("SPAWNING???? {}", free_port);
-
-    let mut cmd = Command::new(sshd_path);
+    let mut cmd = Command::new(&config.sshd_path);
     cmd.arg("-D"); // run in foreground
-    cmd.arg("-e"); // debug to sterr
+                   // cmd.arg("-e"); // debug to sterr
     cmd.arg("-f").arg(config_file_path);
     cmd.kill_on_drop(true);
 

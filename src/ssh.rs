@@ -1,6 +1,6 @@
 use crate::data_type::RacConfig;
 use crate::data_type::*;
-use crate::session_handler::{EmbeddedSession, SessionHandling};
+use crate::local_session::{EmbeddedSession, SessionLifecycle};
 use async_trait::async_trait;
 use color_eyre::{eyre, eyre::bail};
 use russh::client::Config;
@@ -20,11 +20,11 @@ pub struct Client {
     pub(crate) server_public_key: ssh_key::PublicKey,
     pub(crate) user_allowed_keys: Vec<ssh_key::PublicKey>,
     pub(crate) shell: Option<PathBuf>,
-    pub(crate) session_type: &'static SessionType, // 'static required because russh requires static
+    pub(crate) session_type: Arc<LocalSession>,
 }
 
 #[async_trait]
-impl<'a> client::Handler for Client {
+impl client::Handler for Client {
     type Error = eyre::Error;
 
     async fn check_server_key(self, server_public_key: &key::PublicKey) -> Result<(Self, bool)> {
@@ -48,9 +48,6 @@ impl<'a> client::Handler for Client {
         _originator_port: u32,
         session: russh::client::Session,
     ) -> Result<(Self, russh::client::Session)> {
-        dbg!(channel.id());
-        dbg!(_originator_port);
-
         log::info!(
             "Received connection from {} on {}:{} handling with {:?}",
             originator_address,
@@ -59,12 +56,10 @@ impl<'a> client::Handler for Client {
             &self.session_type,
         );
 
-        dbg!("CHANNEL OPEN?");
-
-        match self.session_type.clone() {
-            SessionType::Embedded(session) => session.handle(&self, channel).await?,
-            SessionType::TargetHost(session) => session.handle(&self, channel).await?,
-            SessionType::SpawnedSshd(session) => session.handle(&self, channel).await?,
+        match self.session_type.as_ref() {
+            LocalSession::Embedded(session) => session.handle(&self, channel).await?,
+            LocalSession::TargetHost(session) => session.handle(&self, channel).await?,
+            LocalSession::SpawnedSshd(session) => session.handle(&self, channel).await?,
         }
 
         Ok((self, session))
@@ -92,17 +87,17 @@ async fn connect_ssh<A: tokio::net::ToSocketAddrs>(
 pub async fn start(
     config: &RacConfig,
     ras_session: &SshSession,
-    local_session: &'static SessionType,
+    local_session: Arc<LocalSession>,
 ) -> crate::Result<russh::client::Handle<Client>> {
     let ssh_config = russh::client::Config::default();
     let ssh_config = Arc::new(ssh_config);
 
-    let shell = if let SessionType::Embedded(EmbeddedSession { shell, .. }) = &local_session
-    {
-        Some(shell.clone())
-    } else {
-        None
-    };
+    let shell =
+        if let LocalSession::Embedded(EmbeddedSession { shell, .. }) = local_session.as_ref() {
+            Some(shell.clone())
+        } else {
+            None
+        };
 
     let sh = Client {
         server_public_key: ras_session.ra_server_ssh_pubkey.clone(),

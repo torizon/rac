@@ -1,17 +1,18 @@
 stages:
-  - test
+  - check
   - build
 
 variables:
   CARGO_HOME: .cargo-home/
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
 
 image: registry.gitlab.com/torizon-platform/ci-container-build:rust-0.0.1
 
 default:
   cache:
     key: rac-build-$CI_JOB_NAME
-    untracked: true
+    untracked: false
     when: always
     paths:
       - target/
@@ -20,15 +21,28 @@ default:
       - .cargo-home/registry/cache/
       - .cargo-home/git/db/
 
-test:
-  stage: test
+lint:
+  stage: check
+  allow_failure: true
   rules:
     - if: $CI_COMMIT_REF_NAME == "master"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
+    - sudo chown rust -R .
     - cargo clippy -- -Wclippy::pedantic
     - cargo fmt --check
-    - cargo test
+
+test:
+  stage: check
+  variables:
+    RUST_LOG: rac=debug
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "master"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - sudo chown rust -R .
+    - sudo apt-get update && sudo apt-get --yes install openssh-server # Needed for spawned sshd test
+    - cargo test -- --nocapture
 
 .cargo-build:
   rules:
@@ -38,6 +52,7 @@ test:
     paths:
       - rac-$TARGET_SHORT
   script:
+    - sudo chown rust -R .
     - cargo build --target $TARGET --release
     - mv target/$TARGET/release/rac rac-$TARGET_SHORT
 

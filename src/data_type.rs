@@ -1,13 +1,13 @@
 use std::{path::PathBuf, time::Duration};
 
-use crate::session_handler::*;
+use crate::local_session::*;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
-pub enum SessionType {
+pub enum LocalSession {
     Embedded(EmbeddedSession),
     TargetHost(TargetHostSession),
     SpawnedSshd(SpawnedSshdSession),
@@ -30,7 +30,7 @@ pub struct DeviceConfig {
     pub ssh_private_key_path: PathBuf,
     #[serde(skip_serializing, default = "default_poll_timeout")]
     pub poll_timeout: Duration,
-    pub session: SessionType,
+    pub session: LocalSession,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -82,14 +82,14 @@ impl Default for DeviceConfig {
         Self {
             ssh_private_key_path: "device-key.sec".into(),
             poll_timeout: default_poll_timeout(),
-            session: SessionType::default(),
+            session: LocalSession::default(),
         }
     }
 }
 
-impl Default for SessionType {
+impl Default for LocalSession {
     fn default() -> Self {
-        SessionType::TargetHost(TargetHostSession {
+        LocalSession::TargetHost(TargetHostSession {
             #[allow(clippy::unwrap_used)]
             host_port: "127.0.0.1:22".parse().unwrap(),
             authorized_keys_path: "/home/torizon/.ssh/authorized_keys2".into(),

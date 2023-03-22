@@ -79,7 +79,7 @@ This can be configured using:
 ```
 [device.session.embedded]
 server_key_path = "/home/torizon/.embedded-key.sec"
-shell = "/usr/bin/bash"
+shell = "/bin/bash"
 ```
 
 If `server_key_path` is not set, a new key will be generated for each session. `shell` is optional and the default is shown above.
@@ -88,12 +88,11 @@ A new server host key will be created if `server_key_path` does not exist.
 
 ### Spawned SSHD
 
-For each remote session, a new sshd instance will be spawned to accept
-the ssh connection.
+For each Remote Access Client session received from the server, a new sshd instance will be
+spawned to accept remote sessions.
 
-The sshd instance will be configured according to the metadata
-supplied by the server. The sshd will be configured to only accept the
-public keys allowed by the server.
+The sshd process will be configured to only accept the public keys
+allowed by the server.
 
 The user will still to login with a valid username (for example `torizon`). `root` access is not allowed.
 
@@ -101,10 +100,11 @@ This can be enabled using:
 
 ```
 [device.session.spanwed_sshd]
-sshd_path = "/usr/bin/sshd"
+sshd_path = "/usr/sbin/sshd"
 config_dir = "/run/rac"
+host_key_path = "spawned_sshd_host_key"
 ```
 
-All values are optional and the defaults are shown above.
+All values are optional. For `sshd_path` and `host_key_path` the defaults are shown above. if `host_key_path` is not provided, a new key will be created in `config_dir` and reused as long as that file exists.
 
 The process running RAC must have write access to `config_dir`.

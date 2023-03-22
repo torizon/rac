@@ -16,7 +16,7 @@ pub async fn update_keys(authorized_keys: impl AsRef<Path>, new_keys: &[PublicKe
         .read(true)
         .write(true)
         .create(true)
-        .mode(0o644)
+        .mode(0o600)
         .open(path)
         .await
         .wrap_err("opening authorized keys file")?;

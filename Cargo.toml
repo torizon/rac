@@ -12,10 +12,8 @@ config = { version = "0.13.3", default-features = false, features = ["toml"] }
 env_logger = "0.10.0"
 log = "0.4.17"
 reqwest = { version = "0.11.13", default-features = false, features = ["json", "rustls-tls-manual-roots", "hyper-rustls"] }
-#russh = { git = "https://github.com/warp-tech/russh.git", tag = "0.37.0-beta.1" }
-russh = { path = "/home/simao/code/russh/russh" }
-russh-keys = { path = "/home/simao/code/russh/russh-keys" }
-# russh-keys = { git = "https://github.com/warp-tech/russh.git", tag = "0.37.0-beta.1" }
+russh = { git = "https://github.com/warp-tech/russh.git", tag = "0.37.0-beta.1" }
+russh-keys = { git = "https://github.com/warp-tech/russh.git", tag = "0.37.0-beta.1" }
 serde = { version = "1.0.152", features = ["std", "derive"] }
 ssh-key = { version = "0.5.1", features = ["serde", "ed25519"] }
 tokio = { version = "1.23.0", features = ["full"] }

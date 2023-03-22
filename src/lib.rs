@@ -6,8 +6,8 @@
 
 pub mod data_type;
 pub mod device_keys;
+pub mod local_session;
 pub mod ras_client;
-pub mod session_handler;
 
 mod authorized_keys;
 mod embedded_server;
@@ -15,8 +15,9 @@ mod spawned_sshd;
 mod ssh;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
-use session_handler::LocalSshSessionHandle;
+use eyre::Context;
 use tokio::select;
 
 use crate::data_type::RacConfig;
@@ -30,13 +31,23 @@ pub async fn keep_session_loop(
     config: &RacConfig,
     client: &RasClient,
     session: &DeviceSession,
-    local_session: &'static SessionType
 ) -> Result<()> {
-    let mut session_handle = ssh::start(config, &session.ssh, local_session).await?;
+    let mut session_type = config.device.session.clone();
+
+    let mut wait_handle = session_type
+        .start()
+        .await
+        .wrap_err("starting local session handle")?;
+
+    let mut session_handle = ssh::start(config, &session.ssh, Arc::new(session_type)).await?;
     let poll_timeout = config.device.poll_timeout;
 
     loop {
         select! {
+            r = &mut wait_handle => {
+                error!("Local session handle exited unexpectedly: {r:?}");
+                break;
+            },
             h = &mut session_handle => {
                 if let Err(err) = h {
                     error!("Error with ssh session: {:?}", err);
