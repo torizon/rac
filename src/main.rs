@@ -10,7 +10,9 @@ use std::time::Duration;
 use config::Config;
 use eyre::Context;
 use log::*;
+use rac::data_type::SessionType;
 use rac::ras_client::*;
+use rac::session_handler::LocalSshSessionHandle;
 use rac::{data_type::RacConfig, device_keys};
 
 #[tokio::main(flavor = "current_thread")]
@@ -45,7 +47,7 @@ async fn main() {
         .build()
         .expect("Could not load config");
 
-    let rac_cfg: RacConfig = config
+    let mut rac_cfg: RacConfig = config
         .try_deserialize()
         .expect("could not deserialize config");
 
@@ -55,12 +57,20 @@ async fn main() {
         }
     }
 
-    rac_cfg
-        .device
-        .session
-        .ready()
-        .await
-        .expect("could not start session handler");
+    let mut local_session = rac_cfg.device.session.clone();
+
+    let ff = local_session.start();
+
+    let mut wait_handle = {
+        ff.await.unwrap()
+            // .awaitp
+            // .expect("could not start session handler")
+    };
+
+    // TODO: Wait for handler to crap itself
+
+    // let b = Box::leak(Box::new(local_session));
+    let b = Arc::new(local_session);
 
     let ras_client = RasClient::with_tls(rac_cfg.clone()).expect("could not create RasClient");
 
@@ -80,12 +90,20 @@ async fn main() {
     loop {
         debug!("checking for new sessions for this device");
 
-        if let Err(err) = check_new_sessions(&ras_client, &rac_cfg).await {
-            debug!("{err:#?}");
-            error!("could not get sessions: {err}. Trying later");
-            tokio::time::sleep(Duration::from_secs(3)).await;
-        } else {
-            tokio::time::sleep(rac_cfg.device.poll_timeout).await;
+        tokio::select! {
+            r = &mut wait_handle => {
+                error!("Local session handle exited unexpectedly: {r:?}");
+                break;
+            },
+            r = check_new_sessions(&ras_client, &rac_cfg, b) => {
+                if let Err(err) = r {
+                    debug!("{err:#?}");
+                    error!("could not get sessions: {err}. Trying later");
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                } else {
+                    tokio::time::sleep(rac_cfg.device.poll_timeout).await;
+                }
+            }
         }
     }
 }
@@ -93,6 +111,7 @@ async fn main() {
 async fn check_new_sessions(
     ras_client: &RasClient,
     rac_config: &RacConfig,
+    local_session: &'static SessionType,
 ) -> Result<(), eyre::Report> {
     let session = ras_client
         .get_session()
@@ -110,7 +129,7 @@ async fn check_new_sessions(
     debug!("{session:?}");
     info!("Received new session");
 
-    rac::keep_session_loop(rac_config, ras_client, &session)
+    rac::keep_session_loop(rac_config, ras_client, &session, local_session)
         .await
         .wrap_err("Error in ssh session loop")?;
 

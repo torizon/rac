@@ -7,11 +7,14 @@ use std::{
 };
 
 use color_eyre::Report;
-use eyre::Context;
+use eyre::{bail, Context};
 use futures::FutureExt;
 use log::{debug, info, warn};
 use russh::{client::Msg, Channel};
-use ssh_key::PublicKey;
+use ssh_key::{
+    rand_core::{OsRng, RngCore},
+    PublicKey,
+};
 use tokio::{
     fs::OpenOptions,
     io::AsyncWriteExt,
@@ -21,7 +24,11 @@ use tokio::{
 
 use std::os::unix::ffi::OsStrExt;
 
-use crate::{authorized_keys, device_keys, Result};
+use crate::{
+    authorized_keys, device_keys,
+    session_handler::{self, LocalSshSessionHandle},
+    Result,
+};
 
 async fn write_config_file(
     port: u16,
@@ -38,7 +45,6 @@ async fn write_config_file(
         r#"
 Port {port}
 ListenAddress 127.0.0.1
-ListenAddress ::1
 PidFile none
 HostKey {host_key_path}
 PermitRootLogin no
@@ -89,7 +95,8 @@ async fn ensure_host_key_exists(config_dir: &Path) -> Result<PathBuf> {
 }
 
 async fn find_free_port() -> Result<u16> {
-    let listener = TcpListener::bind(("0.0.0.0", 0)).await?;
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    dbg!(listener.local_addr()?.port());
     Ok(listener.local_addr()?.port())
 }
 
@@ -110,18 +117,31 @@ pub(crate) async fn ensure_sshd_chan_ready(port: u16) -> Result<TcpStream> {
         }
     }
 
-    eyre::bail!("could not connect to sshd after {tries} tries");
+    bail!("could not connect to sshd after {tries} tries");
+}
+
+pub(crate) async fn start___<'a>(
+    sshd_path: &'a Path,
+    config_dir: &'a Path,
+) -> Result<(u16, impl Future<Output = Result<ExitStatus>>)> {
+    let (port, handle) = spawn_sshd(sshd_path, config_dir, &[])
+        .await
+        .wrap_err("error forking sshd on")?;
+
+    // let f = async move {
+    //     handle.await.map(|_| ()) // TODO: Log exit status
+    // };
+
+    Ok((port, handle))
 }
 
 pub(crate) async fn connect_channel(
-    sshd_path: &Path,
     config_dir: &Path,
+    port: u16,
     allowed_keys: &[ssh_key::PublicKey],
     client_channel: Channel<Msg>,
 ) -> crate::Result<()> {
-    let (port, handle) = spawn_sshd(sshd_path, config_dir, allowed_keys)
-        .await
-        .wrap_err("error forking sshd")?;
+    update_authorized_keys(config_dir, allowed_keys).await?;
 
     let buffer_size = 8 * 1024 * 1000;
 
@@ -134,13 +154,8 @@ pub(crate) async fn connect_channel(
     let mut client_channel =
         tokio::io::BufStream::with_capacity(buffer_size, buffer_size, client_channel.into_stream());
 
-    tokio::select! {
-        exit_code = handle =>
-            info!("sshd exited with status: {exit_code:?}"),
-        res = tokio::io::copy_bidirectional(&mut sshd_chan, &mut client_channel) =>
-            if let Err(err) = res {
-                info!("ssh <-> spawned sshd channel ended: {err:?}");
-            },
+    if let Err(err) = tokio::io::copy_bidirectional(&mut sshd_chan, &mut client_channel).await {
+        info!("ssh <-> spawned sshd channel ended: {err:?}");
     }
 
     Ok(())
@@ -163,10 +178,19 @@ async fn spawn_sshd(
 
     let free_port = find_free_port().await?;
 
-    let config_file =
-        write_config_file(free_port, config_dir, &host_key_path, &authorized_keys_path).await?;
+    debug!("spawning sshd on port {free_port}");
+
+    let config_file = write_config_file(
+        free_port,
+        config_dir,
+        &host_key_path,
+        &authorized_keys_path,
+    )
+    .await?;
 
     let config_file_path = String::from_utf8_lossy(config_file.as_os_str().as_bytes()).to_string();
+
+    dbg!("SPAWNING???? {}", free_port);
 
     let mut cmd = Command::new(sshd_path);
     cmd.arg("-D"); // run in foreground

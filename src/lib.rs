@@ -16,6 +16,7 @@ mod ssh;
 
 use std::collections::HashSet;
 
+use session_handler::LocalSshSessionHandle;
 use tokio::select;
 
 use crate::data_type::RacConfig;
@@ -29,8 +30,9 @@ pub async fn keep_session_loop(
     config: &RacConfig,
     client: &RasClient,
     session: &DeviceSession,
+    local_session: &'static SessionType
 ) -> Result<()> {
-    let mut session_handle = ssh::start(config, &session.ssh).await?;
+    let mut session_handle = ssh::start(config, &session.ssh, local_session).await?;
     let poll_timeout = config.device.poll_timeout;
 
     loop {

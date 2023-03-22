@@ -16,6 +16,6 @@ ssh_private_key_path = "./device-key-01.sec"
 # server_key_path = "embedded-rac-key.sec"
 # shell = "/usr/bin/fish"
 
-# [device.session.spawned_sshd]
-# sshd_path = "/usr/bin/sshd"
-# config_dir = "./run/rac"
+[device.session.spawned_sshd]
+sshd_path = "/usr/bin/sshd"
+config_dir = "./run/rac"

@@ -252,7 +252,7 @@ impl russh::server::Handler for DeviceConnection {
 
         let shell = if let Some(ref s) = self.shell {
             s.clone()
-        }else {
+        } else {
             bail!("configuration error, pty requested but shell not set")
         };
 

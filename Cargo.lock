@@ -1743,6 +1743,7 @@ dependencies = [
  "ssh-key",
  "tempfile",
  "tokio",
+ "tokio-retry",
  "tokio-util",
  "url",
  "uuid",
@@ -1945,8 +1946,7 @@ dependencies = [
 
 [[package]]
 name = "russh"
-version = "0.37.0-beta.1"
-source = "git+https://github.com/warp-tech/russh.git?tag=0.37.0-beta.1#719afe6b8249d0604dbcf9f8f835cfdb08cadf91"
+version = "0.37.1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1980,7 +1980,6 @@ dependencies = [
 [[package]]
 name = "russh-cryptovec"
 version = "0.7.0"
-source = "git+https://github.com/warp-tech/russh.git?tag=0.37.0-beta.1#719afe6b8249d0604dbcf9f8f835cfdb08cadf91"
 dependencies = [
  "libc",
  "winapi",
@@ -1988,8 +1987,7 @@ dependencies = [
 
 [[package]]
 name = "russh-keys"
-version = "0.37.0-beta.1"
-source = "git+https://github.com/warp-tech/russh.git?tag=0.37.0-beta.1#719afe6b8249d0604dbcf9f8f835cfdb08cadf91"
+version = "0.37.1"
 dependencies = [
  "aes",
  "bcrypt-pbkdf",
@@ -2541,6 +2539,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tokio-retry"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f57eb36ecbe0fc510036adff84824dd3c24bb781e21bfa67b69d556aa85214f"
+dependencies = [
+ "pin-project",
+ "rand 0.8.5",
+ "tokio",
 ]
 
 [[package]]

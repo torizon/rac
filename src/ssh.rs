@@ -20,11 +20,11 @@ pub struct Client {
     pub(crate) server_public_key: ssh_key::PublicKey,
     pub(crate) user_allowed_keys: Vec<ssh_key::PublicKey>,
     pub(crate) shell: Option<PathBuf>,
-    pub(crate) session_type: SessionType,
+    pub(crate) session_type: &'static SessionType, // 'static required because russh requires static
 }
 
 #[async_trait]
-impl client::Handler for Client {
+impl<'a> client::Handler for Client {
     type Error = eyre::Error;
 
     async fn check_server_key(self, server_public_key: &key::PublicKey) -> Result<(Self, bool)> {
@@ -48,6 +48,9 @@ impl client::Handler for Client {
         _originator_port: u32,
         session: russh::client::Session,
     ) -> Result<(Self, russh::client::Session)> {
+        dbg!(channel.id());
+        dbg!(_originator_port);
+
         log::info!(
             "Received connection from {} on {}:{} handling with {:?}",
             originator_address,
@@ -55,6 +58,8 @@ impl client::Handler for Client {
             connected_port,
             &self.session_type,
         );
+
+        dbg!("CHANNEL OPEN?");
 
         match self.session_type.clone() {
             SessionType::Embedded(session) => session.handle(&self, channel).await?,
@@ -80,17 +85,19 @@ async fn connect_ssh<A: tokio::net::ToSocketAddrs>(
     sock_ref.set_tcp_keepalive(&ka)?;
 
     let session = russh::client::connect_stream(ssh_config, socket, handler).await?;
+
     Ok(session)
 }
 
 pub async fn start(
     config: &RacConfig,
     ras_session: &SshSession,
+    local_session: &'static SessionType,
 ) -> crate::Result<russh::client::Handle<Client>> {
     let ssh_config = russh::client::Config::default();
     let ssh_config = Arc::new(ssh_config);
 
-    let shell = if let SessionType::Embedded(EmbeddedSession { shell, .. }) = &config.device.session
+    let shell = if let SessionType::Embedded(EmbeddedSession { shell, .. }) = &local_session
     {
         Some(shell.clone())
     } else {
@@ -100,7 +107,7 @@ pub async fn start(
     let sh = Client {
         server_public_key: ras_session.ra_server_ssh_pubkey.clone(),
         user_allowed_keys: ras_session.authorized_pubkeys.clone(),
-        session_type: config.device.session.clone(),
+        session_type: local_session,
         shell,
     };
 
