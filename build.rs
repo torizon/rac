@@ -1,5 +1,5 @@
-use vergen::{Config, vergen};
-use vergen::{ShaKind};
+use vergen::ShaKind;
+use vergen::{vergen, Config};
 
 fn main() {
     // Generate the default 'cargo:' instruction output

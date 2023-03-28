@@ -4,14 +4,20 @@
 #![warn(clippy::print_stdout)]
 #![warn(clippy::print_stderr)]
 
-pub mod authorized_keys;
 pub mod data_type;
 pub mod device_keys;
+pub mod local_session;
 pub mod ras_client;
-pub mod ssh;
+
+mod authorized_keys;
+mod embedded_server;
+mod spawned_sshd;
+mod ssh;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
+use eyre::Context;
 use tokio::select;
 
 use crate::data_type::RacConfig;
@@ -26,18 +32,30 @@ pub async fn keep_session_loop(
     client: &RasClient,
     session: &DeviceSession,
 ) -> Result<()> {
-    let mut handle = ssh::start(config, &session.ssh).await?;
+    let mut session_type = config.device.session.clone();
+
+    let mut wait_handle = session_type
+        .start()
+        .await
+        .wrap_err("starting local session handle")?;
+
+    let mut session_handle = ssh::start(config, &session.ssh, Arc::new(session_type)).await?;
+    let poll_timeout = config.device.poll_timeout;
 
     loop {
         select! {
-            h = &mut handle => {
+            r = &mut wait_handle => {
+                error!("Local session handle exited unexpectedly: {r:?}");
+                break;
+            },
+            h = &mut session_handle => {
                 if let Err(err) = h {
                     error!("Error with ssh session: {:?}", err);
                 }
                 info!("ssh session ended");
                 break;
             },
-            _ = tokio::time::sleep(config.device.poll_timeout) => {
+            _ = tokio::time::sleep(poll_timeout) => {
                 let new_session = client.get_session().await?.map(|s| s.ssh);
 
                 match session_still_valid(&session.ssh, new_session.as_ref()) {
@@ -45,7 +63,7 @@ pub async fn keep_session_loop(
                         debug!("Session still valid"),
                     invalid => {
                         warn!("session changed ({invalid:?}), disconnecting client");
-                        handle.disconnect(russh::Disconnect::ByApplication, "disconnect, session not valid", "en").await?;
+                        session_handle.disconnect(russh::Disconnect::ByApplication, "disconnect, session not valid", "en").await?;
                         break;
                     },
                 }
@@ -81,8 +99,14 @@ fn session_still_valid(old: &SshSession, new: Option<&SshSession>) -> ValidSessi
         return ValidSession::InvalidKeysChanged;
     }
 
-    let old_set: HashSet<String> = old_keys.iter().flat_map(ssh_key::PublicKey::to_openssh).collect();
-    let new_set: HashSet<String> = new_keys.iter().flat_map(ssh_key::PublicKey::to_openssh).collect();
+    let old_set: HashSet<String> = old_keys
+        .iter()
+        .flat_map(ssh_key::PublicKey::to_openssh)
+        .collect();
+    let new_set: HashSet<String> = new_keys
+        .iter()
+        .flat_map(ssh_key::PublicKey::to_openssh)
+        .collect();
 
     if !old_set.is_superset(&new_set) {
         return ValidSession::InvalidKeysChanged;
@@ -118,7 +142,7 @@ pub(crate) mod test {
     pub fn setup() {
         INIT.call_once(|| {
             env_logger::init();
-            color_eyre::install().unwrap();
+            color_eyre::install().expect("error installed color_eyre");
         });
     }
 }

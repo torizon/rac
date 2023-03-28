@@ -1,31 +1,35 @@
 use crate::data_type::RacConfig;
 use crate::data_type::*;
+use crate::local_session::{EmbeddedSession, SessionLifecycle};
 use async_trait::async_trait;
+use color_eyre::{eyre, eyre::bail};
+use russh::client::Config;
 use russh::*;
 use russh_keys::*;
-use uuid::Uuid;
-use std::net::SocketAddr;
+use socket2::TcpKeepalive;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpStream;
-use color_eyre::{eyre::{self}, eyre::bail};
+use uuid::Uuid;
+
+use crate::Result;
 
 #[derive(Debug)]
 pub struct Client {
-    server_public_key: ssh_key::PublicKey,
-    ssh_host_port: SocketAddr,
+    pub(crate) server_public_key: ssh_key::PublicKey,
+    pub(crate) user_allowed_keys: Vec<ssh_key::PublicKey>,
+    pub(crate) shell: Option<PathBuf>,
+    pub(crate) session_type: Arc<LocalSession>,
 }
 
 #[async_trait]
 impl client::Handler for Client {
     type Error = eyre::Error;
 
-    async fn check_server_key(
-        self,
-        server_public_key: &key::PublicKey,
-    ) -> Result<(Self, bool), Self::Error> {
+    async fn check_server_key(self, server_public_key: &key::PublicKey) -> Result<(Self, bool)> {
         let given_key = ssh_key::PublicKey::from_bytes(&server_public_key.public_key_bytes())?;
 
-        // TODO: Not enough?
         if given_key.key_data() == self.server_public_key.key_data() {
             log::info!("Accepting server public key: {}", given_key.to_openssh()?);
             Ok((self, true))
@@ -43,51 +47,68 @@ impl client::Handler for Client {
         originator_address: &str,
         _originator_port: u32,
         session: russh::client::Session,
-    ) -> Result<(Self, russh::client::Session), Self::Error> {
-
+    ) -> Result<(Self, russh::client::Session)> {
         log::info!(
-            "Received connection from {} on {}:{} forwarding to {}",
+            "Received connection from {} on {}:{} handling with {:?}",
             originator_address,
             connected_address,
             connected_port,
-            self.ssh_host_port,
+            &self.session_type,
         );
 
-        tokio::spawn(async move {
-            let mut igress = channel.into_stream();
-            let remote_conn = TcpStream::connect(self.ssh_host_port).await;
-
-            match remote_conn {
-                Err(err) => log::error!("Could not connect to ssh host: {:?} : {}", self.ssh_host_port, err),
-                Ok(mut egress) => {
-                    let r = tokio::io::copy_bidirectional(&mut igress, &mut egress).await;
-                    log::debug!("remote connection finished {:?}", r);
-                }
-            }
-        });
+        match self.session_type.as_ref() {
+            LocalSession::Embedded(session) => session.handle(&self, channel).await?,
+            LocalSession::TargetHost(session) => session.handle(&self, channel).await?,
+            LocalSession::SpawnedSshd(session) => session.handle(&self, channel).await?,
+        }
 
         Ok((self, session))
     }
 }
 
+async fn connect_ssh<A: tokio::net::ToSocketAddrs>(
+    ssh_config: Arc<Config>,
+    addr: A,
+    handler: Client,
+) -> Result<russh::client::Handle<Client>> {
+    let socket = TcpStream::connect(addr).await?;
+    let sock_ref = socket2::SockRef::from(&socket);
+
+    let mut ka = TcpKeepalive::new();
+    ka = ka.with_time(Duration::from_secs(20));
+    ka = ka.with_interval(Duration::from_secs(20));
+    sock_ref.set_tcp_keepalive(&ka)?;
+
+    let session = russh::client::connect_stream(ssh_config, socket, handler).await?;
+
+    Ok(session)
+}
+
 pub async fn start(
     config: &RacConfig,
     ras_session: &SshSession,
+    local_session: Arc<LocalSession>,
 ) -> crate::Result<russh::client::Handle<Client>> {
     let ssh_config = russh::client::Config::default();
     let ssh_config = Arc::new(ssh_config);
 
+    let shell =
+        if let LocalSession::Embedded(EmbeddedSession { shell, .. }) = local_session.as_ref() {
+            Some(shell.clone())
+        } else {
+            None
+        };
+
     let sh = Client {
         server_public_key: ras_session.ra_server_ssh_pubkey.clone(),
-        ssh_host_port: config.device.target_host_port,
+        user_allowed_keys: ras_session.authorized_pubkeys.clone(),
+        session_type: local_session,
+        shell,
     };
 
     let seckey = russh_keys::load_secret_key(&config.device.ssh_private_key_path, None)?;
 
-    log::info!(
-        "ssh to {}",
-        ras_session.ra_server_url.as_str(),
-    );
+    log::info!("ssh to {}", ras_session.ra_server_url.as_str(),);
 
     let Some(server_host) = ras_session.ra_server_url.domain() else {
         bail!("invalid ras_session.ra_server_url: {:?} no domain", ras_session.ra_server_url);
@@ -97,12 +118,7 @@ pub async fn start(
         bail!("invalid ras_session.ra_server_url: {:?} no port", ras_session.ra_server_url);
     };
 
-    let mut session = russh::client::connect(
-        ssh_config,
-        (server_host, server_port),
-        sh,
-    )
-        .await?;
+    let mut session = connect_ssh(ssh_config, (server_host, server_port), sh).await?;
 
     let device_uuid = Uuid::parse_str(ras_session.ra_server_url.username())?;
 

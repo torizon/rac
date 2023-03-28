@@ -4,11 +4,12 @@
 #![warn(clippy::print_stdout)]
 #![warn(clippy::print_stderr)]
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use config::Config;
+use eyre::Context;
 use log::*;
-use rac::authorized_keys;
 use rac::ras_client::*;
 use rac::{data_type::RacConfig, device_keys};
 
@@ -18,9 +19,13 @@ async fn main() {
         std::env::set_var("RUST_LOG", "rac=info");
     }
 
-    env_logger::init();
-    #[allow(clippy::unwrap_used)]
-    color_eyre::install().unwrap();
+    if env!("VERGEN_CARGO_PROFILE") == "release" {
+        env_logger::builder().format_target(false).init();
+    } else {
+        env_logger::init();
+    }
+
+    color_eyre::install().expect("could no initialize color_eyre");
 
     let file = if let Ok(f) = std::env::var("CONFIG_FILE") {
         f
@@ -28,7 +33,7 @@ async fn main() {
         "client.toml".to_owned()
     };
 
-    debug!("Config file set to {}", file);
+    info!("Config file set to {}", file);
 
     let config = Config::builder()
         .add_source(config::File::with_name(&file))
@@ -52,11 +57,7 @@ async fn main() {
 
     let ras_client = RasClient::with_tls(rac_cfg.clone()).expect("could not create RasClient");
 
-    authorized_keys::update_keys(&rac_cfg.device.authorized_keys_path, &vec![])
-        .await
-        .expect("could not reset authorized keys");
-
-    let device_pubkey = device_keys::read_or_create(&rac_cfg.device.ssh_private_key_path)
+    let device_pubkey = device_keys::read_or_create_pubkey(&rac_cfg.device.ssh_private_key_path)
         .await
         .expect("could not read/generate device ssh pubkey");
 
@@ -67,45 +68,50 @@ async fn main() {
         .await
         .expect("could not add this device's public keys to RAS");
 
+    let ras_client = Arc::new(ras_client);
+
     loop {
         debug!("checking for new sessions for this device");
 
-        let session = ras_client.get_session().await;
-
-        if let Err(e) = session {
-            error!("Could not get session data from server: {e}. Trying later");
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            continue;
-        }
-
-        #[allow(clippy::unwrap_used)]
-        if let Some(device_session) = session.unwrap() {
-            debug!("{device_session:?}");
-            info!("Received new session");
-            let ssh_session = &device_session.ssh;
-
-            if let Err(e) = authorized_keys::update_keys(
-                &rac_cfg.device.authorized_keys_path,
-                &ssh_session.authorized_pubkeys,
-            )
-            .await
-            {
-                error!("Could not update authorized_keys on local system: {}", e);
-                tokio::time::sleep(Duration::from_secs(3)).await;
-                continue;
-            }
-
-            match rac::keep_session_loop(&rac_cfg, &ras_client, &device_session).await {
-                Ok(_) => info!("ssh session closed"),
-                Err(err) => {
-                    error!("Error in ssh session loop: {:?}", err);
+        tokio::select! {
+            r = check_new_sessions(&ras_client, &rac_cfg) => {
+                if let Err(err) = r {
+                    debug!("{err:#?}");
+                    error!("could not get sessions: {err}. Trying later");
                     tokio::time::sleep(Duration::from_secs(3)).await;
-                    continue;
+                } else {
+                    tokio::time::sleep(rac_cfg.device.poll_timeout).await;
                 }
             }
-        } else {
-            debug!("No sessions available for this device");
-            tokio::time::sleep(rac_cfg.device.poll_timeout).await;
         }
     }
+}
+
+async fn check_new_sessions(
+    ras_client: &RasClient,
+    rac_config: &RacConfig,
+) -> Result<(), eyre::Report> {
+    let session = ras_client
+        .get_session()
+        .await
+        .wrap_err("Could not get session data from server")?;
+
+    if session.is_none() {
+        debug!("No sessions available for this device");
+        return Ok(());
+    }
+
+    #[allow(clippy::unwrap_used)]
+    let session = session.unwrap();
+
+    debug!("{session:?}");
+    info!("Received new session");
+
+    rac::keep_session_loop(rac_config, ras_client, &session)
+        .await
+        .wrap_err("Error in ssh session loop")?;
+
+    info!("ssh session closed");
+
+    Ok(())
 }
