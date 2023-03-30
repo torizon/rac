@@ -175,7 +175,11 @@ pub(crate) async fn spawn_sshd(
 
     let mut cmd = Command::new(&config.sshd_path);
     cmd.arg("-D"); // run in foreground
-                   // cmd.arg("-e"); // debug to sterr
+
+    if log::max_level() <= log::Level::Debug {
+        cmd.arg("-e"); // debug to sterr
+    }
+
     cmd.arg("-f").arg(config_file_path);
     cmd.kill_on_drop(true);
 

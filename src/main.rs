@@ -10,8 +10,8 @@ use std::time::Duration;
 use config::Config;
 use eyre::Context;
 use log::*;
-use rac::ras_client::*;
 use rac::{data_type::RacConfig, device_keys};
+use rac::{drop_privileges, ras_client::*};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -69,6 +69,8 @@ async fn main() {
         .expect("could not add this device's public keys to RAS");
 
     let ras_client = Arc::new(ras_client);
+
+    drop_privileges(&rac_cfg).expect("Could not drop privileges");
 
     loop {
         debug!("checking for new sessions for this device");

@@ -31,6 +31,7 @@ pub struct DeviceConfig {
     #[serde(skip_serializing, default = "default_poll_timeout")]
     pub poll_timeout: Duration,
     pub session: LocalSession,
+    pub unprivileged_user_group: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -83,6 +84,7 @@ impl Default for DeviceConfig {
             ssh_private_key_path: "device-key.sec".into(),
             poll_timeout: default_poll_timeout(),
             session: LocalSession::default(),
+            unprivileged_user_group: None,
         }
     }
 }
