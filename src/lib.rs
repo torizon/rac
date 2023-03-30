@@ -17,6 +17,8 @@ mod ssh;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use eyre::bail;
+use eyre::eyre;
 use eyre::Context;
 use tokio::select;
 
@@ -26,6 +28,43 @@ use crate::ras_client::*;
 use log::*;
 
 type Result<T> = color_eyre::Result<T>;
+
+pub fn drop_privileges(config: &RacConfig) -> Result<()> {
+    if !nix::unistd::Uid::current().is_root() {
+        info!("No need to drop privileges, current user is not root");
+        return Ok(());
+    }
+
+    if let Some(ref user_group) = config.device.unprivileged_user_group {
+        match user_group.split_once(':') {
+            Some((user, group)) => {
+                let ugroup = nix::unistd::Group::from_name(group)?
+                    .ok_or(eyre!("Could not get group {group}"))?;
+
+                nix::unistd::setgid(ugroup.gid)?;
+
+                let uuser = nix::unistd::User::from_name(user)?
+                    .ok_or(eyre!("Could not get user {user}"))?;
+
+                nix::unistd::setuid(uuser.uid)?;
+
+                if nix::unistd::setuid(0.into()).is_ok() {
+                    bail!("Could not drop privileges, can still change back to uid 0");
+                }
+
+                info!("Dropped privileges to {user}:{group}");
+
+                Ok(())
+            }
+            _ => Err(eyre!(
+                "unprivileged_user_group not in correct format: user:group"
+            )),
+        }
+    } else {
+        warn!("privileges not dropped, unprivileged_user_group not set");
+        Ok(())
+    }
+}
 
 pub async fn keep_session_loop(
     config: &RacConfig,

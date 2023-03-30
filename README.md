@@ -99,7 +99,7 @@ The user will still to login with a valid username (for example `torizon`). `roo
 This can be enabled using:
 
 ```
-[device.session.spanwed_sshd]
+[device.session.spawned_sshd]
 sshd_path = "/usr/sbin/sshd"
 config_dir = "/run/rac"
 host_key_path = "spawned_sshd_host_key"

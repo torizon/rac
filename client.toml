@@ -7,15 +7,16 @@ client_key_path = "device-files/pkey.pem"
 [device]
 # If this file does not exist, a new key will be generated and saved to this file
 ssh_private_key_path = "./device-key-01.sec"
+# unprivileged_user_group = "simao:simao"
 
-# [device.session.target_host]
-# host_port = "127.0.0.1:22"
-# authorized_keys_path = "./authorized-keys"
+[device.session.target_host]
+host_port = "127.0.0.1:22"
+authorized_keys_path = "./authorized-keys"
 
 # [device.session.embedded]
 # server_key_path = "embedded-rac-key.sec"
 # shell = "/bin/bash"
 
-[device.session.spawned_sshd]
-sshd_path = "/usr/sbin/sshd"
-config_dir = "./run/rac"
+# [device.session.spawned_sshd]
+# sshd_path = "/usr/sbin/sshd"
+# config_dir = "./run/rac"
