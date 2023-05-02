@@ -41,10 +41,14 @@ pub fn drop_privileges(config: &RacConfig) -> Result<()> {
                 let ugroup = nix::unistd::Group::from_name(group)?
                     .ok_or(eyre!("Could not get group {group}"))?;
 
-                nix::unistd::setgid(ugroup.gid)?;
-
                 let uuser = nix::unistd::User::from_name(user)?
                     .ok_or(eyre!("Could not get user {user}"))?;
+
+                let user_name_cstring = std::ffi::CString::new(user)?;
+
+                nix::unistd::initgroups(&user_name_cstring, ugroup.gid)?;
+
+                nix::unistd::setgid(ugroup.gid)?;
 
                 nix::unistd::setuid(uuser.uid)?;
 
