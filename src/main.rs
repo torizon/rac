@@ -57,20 +57,20 @@ async fn main() {
 
     let ras_client = RasClient::with_tls(rac_cfg.clone()).expect("could not create RasClient");
 
+    drop_privileges(&rac_cfg).expect("Could not drop privileges");
+
     let device_pubkey = device_keys::read_or_create_pubkey(&rac_cfg.device.ssh_private_key_path)
         .await
         .expect("could not read/generate device ssh pubkey");
-
-    debug!("Device public key is {:?}", device_pubkey.to_openssh());
-
+    
     ras_client
         .add_device_pubkey(&device_pubkey)
         .await
         .expect("could not add this device's public keys to RAS");
 
-    let ras_client = Arc::new(ras_client);
+    debug!("Device public key is {:?}", device_pubkey.to_openssh());
 
-    drop_privileges(&rac_cfg).expect("Could not drop privileges");
+    let ras_client = Arc::new(ras_client);
 
     loop {
         debug!("checking for new sessions for this device");
