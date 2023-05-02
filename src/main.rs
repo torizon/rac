@@ -62,7 +62,7 @@ async fn main() {
     let device_pubkey = device_keys::read_or_create_pubkey(&rac_cfg.device.ssh_private_key_path)
         .await
         .expect("could not read/generate device ssh pubkey");
-    
+
     ras_client
         .add_device_pubkey(&device_pubkey)
         .await
@@ -98,13 +98,13 @@ async fn check_new_sessions(
         .await
         .wrap_err("Could not get session data from server")?;
 
-    if session.is_none() {
-        debug!("No sessions available for this device");
-        return Ok(());
-    }
-
-    #[allow(clippy::unwrap_used)]
-    let session = session.unwrap();
+    let session = match session {
+        None => {
+            debug!("No sessions available for this device");
+            return Ok(());
+        }
+        Some(s) => s,
+    };
 
     debug!("{session:?}");
     info!("Received new session");

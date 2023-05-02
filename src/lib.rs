@@ -29,6 +29,7 @@ use log::*;
 
 type Result<T> = color_eyre::Result<T>;
 
+#[allow(clippy::similar_names)]
 pub fn drop_privileges(config: &RacConfig) -> Result<()> {
     if !nix::unistd::Uid::current().is_root() {
         info!("No need to drop privileges, current user is not root");
