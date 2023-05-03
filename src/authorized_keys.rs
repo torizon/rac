@@ -1,3 +1,6 @@
+// Copyright 2023 Toradex A.G.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::Result;
 use color_eyre::eyre::eyre;
 use color_eyre::eyre::Context;
