@@ -1,3 +1,6 @@
+// Copyright 2023 Toradex A.G.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::data_type::RacConfig;
 use crate::data_type::*;
 use crate::local_session::{EmbeddedSession, SessionLifecycle};

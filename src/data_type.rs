@@ -1,3 +1,6 @@
+// Copyright 2023 Toradex A.G.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{path::PathBuf, time::Duration};
 
 use crate::local_session::*;
