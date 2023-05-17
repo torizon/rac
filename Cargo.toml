@@ -3,6 +3,11 @@ name = "rac"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
+homepage = "https://github.com/toradex/torizon-rac"
+description = "Remote access client for Torizon"
+repository = "git://github.com/toradex/torizon-rac.git"
+license = "Apache-2.0"
+license-file = "LICENSE"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
