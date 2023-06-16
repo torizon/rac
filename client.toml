@@ -1,8 +1,8 @@
 [torizon]
 url = "https://dgw.dev.torizon.io/ras/"
-server_cert_path = "device-files/root.crt"
-client_cert_path = "device-files/client.pem"
-client_key_path = "device-files/pkey.pem"
+server_cert_path = "device-files/dev/root.crt"
+client_cert_path = "device-files/dev/client.pem"
+client_key_path = "device-files/dev/pkey.pem"
 
 [device]
 # If this file does not exist, a new key will be generated and saved to this file
