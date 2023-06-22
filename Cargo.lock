@@ -1761,7 +1761,6 @@ dependencies = [
  "url",
  "uuid",
  "vergen",
- "whoami",
 ]
 
 [[package]]
@@ -2912,16 +2911,6 @@ checksum = "f095d78192e208183081cc07bc5515ef55216397af48b873e5edcd72637fa1bd"
 dependencies = [
  "ring",
  "untrusted",
-]
-
-[[package]]
-name = "whoami"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c70234412ca409cc04e864e89523cb0fc37f5e1344ebed5a3ebf4192b6b9f68"
-dependencies = [
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]

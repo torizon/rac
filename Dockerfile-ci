@@ -1,0 +1,36 @@
+FROM rust:1.68-slim-bullseye as builder
+
+ADD https://musl.cc/aarch64-linux-musl-cross.tgz .
+
+RUN sha256sum aarch64-linux-musl-cross.tgz | grep -q c909817856d6ceda86aa510894fa3527eac7989f0ef6e87b5721c58737a06c38 && \
+    mkdir /opt/aarch64-linux-musl-cross && \
+    tar xvf aarch64-linux-musl-cross.tgz --strip-component=1 -C /opt/aarch64-linux-musl-cross
+
+ADD https://musl.cc/arm-linux-musleabihf-cross.tgz .
+
+RUN sha256sum arm-linux-musleabihf-cross.tgz | grep -q 11e155a090789c854afb5d91e57c81f441ccdb92f7f277789c3a6d5884a68e58 && \
+    mkdir /opt/arm-linux-musleabihf-cross && \
+    tar xvf arm-linux-musleabihf-cross.tgz --strip-component=1 -C /opt/arm-linux-musleabihf-cross
+
+FROM rust:1.68-slim-bullseye
+
+RUN apt-get update && apt-get --yes install curl git bash sudo musl-tools openssh-server
+
+COPY --from=builder /opt/aarch64-linux-musl-cross /opt/aarch64-linux-musl-cross
+COPY --from=builder /opt/arm-linux-musleabihf-cross /opt/arm-linux-musleabihf-cross
+
+RUN rustup component add clippy
+
+RUN rustup component add rustfmt
+
+RUN rustup target add aarch64-unknown-linux-musl
+
+RUN rustup target add armv7-unknown-linux-musleabihf
+
+RUN rustup target add x86_64-unknown-linux-musl
+
+RUN mkdir -p /run/sshd
+
+RUN useradd --password $(openssl rand -base64 32) --home /home/ci --shell /bin/bash ci
+
+ENV PATH="/opt/arm-linux-musleabihf-cross/bin:/opt/aarch64-linux-musl-cross/bin:/home/rust:${PATH}"

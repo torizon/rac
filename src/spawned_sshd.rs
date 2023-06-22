@@ -52,6 +52,7 @@ StrictModes {strict}
 HostKey {host_key_path}
 PermitRootLogin no
 AuthorizedKeysFile {authorized_keys_path}
+UsePAM no
 PasswordAuthentication no
 AllowAgentForwarding no
 AllowTcpForwarding yes

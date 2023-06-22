@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: tzn-rac-default-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            tzn-rac-default
+      - run: git config --global --add safe.directory $PWD
+      - run: cargo test -- --nocapture
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: tzn-rac-default-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            tzn-rac-default-    
+      - run: git config --global --add safe.directory $PWD
+      - run: cargo clippy -- -Wclippy::pedantic
+      - run: cargo fmt --check
+
+  build-armv7:
+    name: Build armv7
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: tzn-rac-armv7-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            tzn-rac-armv7
+      - run: git config --global --add safe.directory $PWD
+      - run: cargo build --release --target armv7-unknown-linux-musleabihf
+      - name: Archive binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: rac-armv7
+          path: target/armv7-unknown-linux-musleabihf/release/rac
+
+  build-aarch64:
+    name: Build aarch64
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: tzn-rac-aarch64-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            tzn-rac-aarch64
+      - run: git config --global --add safe.directory $PWD
+      - run: cargo build --release --target aarch64-unknown-linux-musl
+      - name: Archive binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: rac-aarch64
+          path: target/aarch64-unknown-linux-musl/release/rac
+
+# TODO Write release step so we can reuse binaries from previous steps to create release

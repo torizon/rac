@@ -31,7 +31,7 @@ portable-pty = "0.8.0"
 socket2 = "0.4.7"
 eyre = "0.6.8"
 futures = { version = "0.3.27", default-features = false, features = ["std", "alloc"] }
-nix = { version = "0.26.2", default-features = false, features = ["user"] }
+nix = { version = "0.26.2", default-features = false, features = ["user", "fs"] }
 
 [build-dependencies]
 vergen = "7.5.1"
@@ -43,7 +43,5 @@ http = "0.2.9"
 pretty_assertions = "1"
 serde_json = "1.0.93"
 tempfile = "3.4.0"
-whoami = "1.4.0"
 reqwest = { version = "0.11.13", default-features = false, features = ["blocking"] }
 tokio-retry = "0.3.0"
-
