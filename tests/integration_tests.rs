@@ -452,6 +452,25 @@ async fn test_spawned_sshd() {
     local_session_handler.config_dir = "./rac-test".into();
     local_session_handler.strict_mode = false;
 
+    // On CI we run as root, so set user to a normal user and set permissions in config dir
+    let user = if std::env::var("CI").ok().unwrap_or("".to_owned()) == "true" {
+        if let Err(err) = std::fs::create_dir("./rac-test") {
+            debug!("could not create config_dir: {}", err)
+        }
+
+        let uid = nix::unistd::User::from_name("ci").unwrap().unwrap().uid;
+        let gid = nix::unistd::Group::from_name("ci").unwrap().unwrap().gid;
+        nix::unistd::chown("./rac-test", Some(uid), Some(gid)).unwrap();
+
+        "ci".to_owned()
+    } else {
+        local_session_handler.config_dir = "./rac-test".into();
+        nix::unistd::User::from_uid(nix::unistd::Uid::current())
+            .unwrap()
+            .unwrap()
+            .name
+    };
+
     rac_config.device.session = LocalSession::SpawnedSshd(local_session_handler);
 
     let ras_client = RasClient::without_tls(rac_config.clone()).unwrap();
@@ -475,8 +494,6 @@ async fn test_spawned_sshd() {
     })
     .await
     .unwrap();
-
-    let user = whoami::username();
 
     let port = ssh_session.reverse_port;
     let mut ssh = UserSession::connect(user, ("0.0.0.0", port), user_key)
