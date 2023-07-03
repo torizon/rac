@@ -42,6 +42,7 @@ This configuration should work for a default TorizonCore image:
 ```
 [torizon]
 url = "https://dgw.torizon.io/ras/"
+director_url = "https://dgw.torizon.io/director/"
 server_cert_path = "/usr/lib/sota/root.crt"
 client_cert_path = "/var/sota/import/client.pem"
 client_key_path = "/var/sota/import/pkey.pem"
@@ -53,6 +54,7 @@ The `device` section of the config file has three configurable values:
 
 * `unprivileged_user_group` allows you to set a user and group to drop privileges to after RAC is loaded. RAC generally needs to run as root initially, to be able to access the device's x.509 certificate for connecting to the Torizon API. However, after that there is no need for root privileges anymore, so it is a best practice to drop privileges down to a less-privileged user. This value is of the form `user:group`, e.g. `torizon:torizon`
 * `ssh_private_key_path` configures the location the private key the device will use to open up its tunnel to the server. If the file does not yet exist, a new key will be created (and saved for re-use). This option is mandatory. If `unprivileged_user_group` is set, this file must be owned by the unprivileged user.
+* `local_tuf_repo_path` configures the location where the Uptane metadata will be stored. This option is mandatory.
 * `poll_timeout` configures how frequently RAC should poll the Torizon Platform API to check for a remote session. It defaults to 3 seconds.
 
 This configuration should work for a default TorizonCore image:
@@ -61,6 +63,7 @@ This configuration should work for a default TorizonCore image:
 ```
 [device]
 ssh_private_key_path = "/home/torizon/run/rac/device-key-01.sec"
+local_tuf_repo_path = "/var/run/rac/uptane-repo"
 unprivileged_user_group = "torizon:torizon"
 ```
 
