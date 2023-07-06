@@ -1,0 +1,6 @@
+{
+  "keyval" : {
+    "public" : "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnb/SPsMKWjFIfm/vqTLj\nmqYHlTCx4GmnFQ1QD6lqtcIG2+6Ox9ahYjisrBS5sM1+da5nyECVLbRTnve7aZXV\naKEGPj01s3wnxbg3fvkrYCpgWHSvM2jLEEFsjvA1iGxKibJvFniLx2Y4iy3gWXMb\nQ1nlQqq5uDOjNQKUxD31/frv1n7vUXBgOIraWytbyqTd6aQKO5akTLkOK1yXYQrj\n4Xz/wL+ZOsnsuOoNxWjnUrDsdM+TOcdYTHvF14aP7kOPeN1huTaPervrT3GL6Asz\nf/1dQrBG3eEZ9oVMzEMktPkS0x4Qieo13PblmiY6xrqUjX079Nscb0D3RYp2fXRn\nEQIDAQAB\n-----END PUBLIC KEY-----\n"
+  },
+  "keytype" : "RSA"
+}

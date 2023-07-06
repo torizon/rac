@@ -7,7 +7,6 @@ homepage = "https://github.com/toradex/torizon-rac"
 description = "Remote access client for Torizon"
 repository = "git://github.com/toradex/torizon-rac.git"
 license = "Apache-2.0"
-license-file = "LICENSE"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -32,6 +31,10 @@ socket2 = "0.4.7"
 eyre = "0.6.8"
 futures = { version = "0.3.27", default-features = false, features = ["std", "alloc"] }
 nix = { version = "0.26.2", default-features = false, features = ["user", "fs"] }
+tough = { git = "https://github.com/toradex/tough", branch = "rac", features = ["http", "reqwest"] }
+base64 = "0.21.2"
+serde_json = "1.0.93"
+bytes = "1.4.0"
 
 [build-dependencies]
 vergen = "7.5.1"
@@ -45,3 +48,5 @@ serde_json = "1.0.93"
 tempfile = "3.4.0"
 reqwest = { version = "0.11.13", default-features = false, features = ["blocking"] }
 tokio-retry = "0.3.0"
+ring = { version = "0.16.20", features = ["std"] }
+olpc-cjson = "0.1.3"

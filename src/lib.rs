@@ -10,7 +10,7 @@
 pub mod data_type;
 pub mod device_keys;
 pub mod local_session;
-pub mod ras_client;
+pub mod torizon;
 
 mod authorized_keys;
 mod embedded_server;
@@ -23,11 +23,12 @@ use std::sync::Arc;
 use eyre::bail;
 use eyre::eyre;
 use eyre::Context;
+
 use tokio::select;
 
 use crate::data_type::RacConfig;
 use crate::data_type::*;
-use crate::ras_client::*;
+use crate::torizon::*;
 use log::*;
 
 type Result<T> = color_eyre::Result<T>;
@@ -76,7 +77,7 @@ pub fn drop_privileges(config: &RacConfig) -> Result<()> {
 
 pub async fn keep_session_loop(
     config: &RacConfig,
-    client: &RasClient,
+    client: &TorizonClient,
     session: &DeviceSession,
 ) -> Result<()> {
     let mut session_type = config.device.session.clone();
@@ -85,6 +86,16 @@ pub async fn keep_session_loop(
         .start()
         .await
         .wrap_err("starting local session handle")?;
+
+    let session_valid = valid_session_metadata(client, &session.ssh).await?;
+    if session_valid != ValidSession::Valid {
+        debug!("session from server is invalid: {:#?}", &session.ssh);
+        error!(
+            "invalid session received from server: {:#?}",
+            &session_valid
+        );
+        return Ok(());
+    }
 
     let mut session_handle = ssh::start(config, &session.ssh, Arc::new(session_type)).await?;
     let poll_timeout = config.device.poll_timeout;
@@ -105,11 +116,11 @@ pub async fn keep_session_loop(
             _ = tokio::time::sleep(poll_timeout) => {
                 let new_session = client.get_session().await?.map(|s| s.ssh);
 
-                match session_still_valid(&session.ssh, new_session.as_ref()) {
+                match session_still_valid(client, &session.ssh, new_session.as_ref()).await? {
                     ValidSession::Valid =>
                         debug!("Session still valid"),
                     invalid => {
-                        warn!("session changed ({invalid:?}), disconnecting client");
+                        warn!("session no longer valid ({invalid:?}), disconnecting client");
                         session_handle.disconnect(russh::Disconnect::ByApplication, "disconnect, session not valid", "en").await?;
                         break;
                     },
@@ -121,9 +132,10 @@ pub async fn keep_session_loop(
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum ValidSession {
     Valid,
+    InvalidUptaneMetadata(Vec<String>),
     InvalidSessionIsGone,
     InvalidKeysChanged,
     InvalidReversePortChanged,
@@ -131,9 +143,72 @@ enum ValidSession {
     InvalidRaServerPubKeyChanged,
 }
 
-fn session_still_valid(old: &SshSession, new: Option<&SshSession>) -> ValidSession {
+async fn valid_session_metadata(
+    torizon_client: &TorizonClient,
+    metadata: &SshSession,
+) -> Result<ValidSession> {
+    let remote_sessions = torizon_client.fetch_verified_remote_sessions().await?;
+
+    let mut reasons = Vec::new();
+
+    let remote_sessions_authorized_keydata: Vec<_> = remote_sessions
+        .authorized_keys
+        .iter()
+        .map(ssh_key::PublicKey::key_data)
+        .collect();
+
+    for k in &metadata.authorized_pubkeys {
+        if !remote_sessions_authorized_keydata.contains(&k.key_data()) {
+            reasons.push(format!(
+                "remote-sessions metadata does not allow client key {}",
+                k.fingerprint(ssh_key::HashAlg::default())
+            ));
+        }
+    }
+
+    if !remote_sessions
+        .ra_server_ssh_pubkeys
+        .contains(&metadata.ra_server_ssh_pubkey)
+    {
+        reasons.push(format!(
+            "remote-sessions metadata does not allow server key {}",
+            metadata
+                .ra_server_ssh_pubkey
+                .fingerprint(ssh_key::HashAlg::default())
+        ));
+    }
+
+    match metadata.ra_server_url.host_str() {
+        Some(host) if !remote_sessions.ra_server_hosts.contains(&host.to_owned()) => {
+            reasons.push(format!(
+                "remote-sessions metadata does not allow server host {} for url {}. Allowed hosts: {}",
+                host,
+                metadata.ra_server_url,
+                remote_sessions.ra_server_hosts.join(", "),
+            ));
+        }
+        Some(_) => {}
+        None => reasons.push(format!(
+            "empty host on url {} not allowed",
+            metadata.ra_server_url
+        )),
+    }
+
+    if reasons.is_empty() {
+        debug!("metadata is valid against remote-sessions.json");
+        Ok(ValidSession::Valid)
+    } else {
+        Ok(ValidSession::InvalidUptaneMetadata(reasons))
+    }
+}
+
+async fn session_still_valid(
+    torizon_client: &TorizonClient,
+    old: &SshSession,
+    new: Option<&SshSession>,
+) -> Result<ValidSession> {
     if new.is_none() {
-        return ValidSession::InvalidSessionIsGone;
+        return Ok(ValidSession::InvalidSessionIsGone);
     }
 
     #[allow(clippy::unwrap_used)]
@@ -143,7 +218,7 @@ fn session_still_valid(old: &SshSession, new: Option<&SshSession>) -> ValidSessi
     let new_keys = &new.authorized_pubkeys;
 
     if old_keys.len() != new_keys.len() {
-        return ValidSession::InvalidKeysChanged;
+        return Ok(ValidSession::InvalidKeysChanged);
     }
 
     let old_set: HashSet<String> = old_keys
@@ -156,28 +231,28 @@ fn session_still_valid(old: &SshSession, new: Option<&SshSession>) -> ValidSessi
         .collect();
 
     if !old_set.is_superset(&new_set) {
-        return ValidSession::InvalidKeysChanged;
+        return Ok(ValidSession::InvalidKeysChanged);
     }
 
     if old.reverse_port != new.reverse_port {
         debug!("{new:?}");
         info!("Reverse port changed, session changed");
-        return ValidSession::InvalidReversePortChanged;
+        return Ok(ValidSession::InvalidReversePortChanged);
     }
 
     if old.ra_server_url != new.ra_server_url {
         debug!("{new:?}");
         info!("ra_server_url changed, session changed");
-        return ValidSession::InvalidRaServerUrlChanged;
+        return Ok(ValidSession::InvalidRaServerUrlChanged);
     }
 
     if old.ra_server_ssh_pubkey != new.ra_server_ssh_pubkey {
         debug!("{new:?}");
         info!("ra_server_ssh_pubkey changed, session changed");
-        return ValidSession::InvalidRaServerPubKeyChanged;
+        return Ok(ValidSession::InvalidRaServerPubKeyChanged);
     }
 
-    ValidSession::Valid
+    valid_session_metadata(torizon_client, new).await
 }
 
 #[cfg(test)]

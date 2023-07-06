@@ -14,7 +14,10 @@ use config::Config;
 use eyre::Context;
 use log::*;
 use rac::{data_type::RacConfig, device_keys};
-use rac::{drop_privileges, ras_client::*};
+use rac::{
+    drop_privileges,
+    torizon::{self, *},
+};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -58,7 +61,9 @@ async fn main() {
         }
     }
 
-    let ras_client = RasClient::with_tls(rac_cfg.clone()).expect("could not create RasClient");
+    let http_client = torizon::tls_http_client(&rac_cfg).expect("could not start http client");
+
+    let ras_client = TorizonClient::new(rac_cfg.clone(), http_client.clone());
 
     drop_privileges(&rac_cfg).expect("Could not drop privileges");
 
@@ -93,7 +98,7 @@ async fn main() {
 }
 
 async fn check_new_sessions(
-    ras_client: &RasClient,
+    ras_client: &TorizonClient,
     rac_config: &RacConfig,
 ) -> Result<(), eyre::Report> {
     let session = ras_client
