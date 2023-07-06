@@ -55,7 +55,7 @@ type Result<T> = color_eyre::Result<T>;
 
 struct DirectorState {
     root: Signed<Root>,
-    remote_sessions: Signed<RemoteSessions>,
+    remote_sessions: Mutex<Signed<RemoteSessions>>,
 }
 
 impl DirectorState {
@@ -117,7 +117,7 @@ impl DirectorState {
 
         Ok(Self {
             root: signed_root,
-            remote_sessions: signed_rs,
+            remote_sessions: Mutex::new(signed_rs),
         })
     }
 
@@ -145,6 +145,12 @@ impl DirectorState {
 
         Ok(signed)
     }
+
+    fn clear(&self) {
+        let mut remote_sessions = self.remote_sessions.lock().unwrap();
+        let new_state = DirectorState::generate(vec![], vec![]).unwrap();
+        *remote_sessions = new_state.remote_sessions.lock().unwrap().clone();
+    }
 }
 
 async fn get_root(State(state): State<Arc<DirectorState>>) -> Response {
@@ -152,7 +158,8 @@ async fn get_root(State(state): State<Arc<DirectorState>>) -> Response {
 }
 
 async fn get_remote_sessions(State(state): State<Arc<DirectorState>>) -> Response {
-    Json(state.remote_sessions.clone()).into_response()
+    let remote_sessions = state.remote_sessions.lock().unwrap().clone();
+    Json(remote_sessions).into_response()
 }
 
 fn fake_director(state: Arc<DirectorState>) -> Router {
@@ -300,7 +307,7 @@ async fn start_ras(
     ssh_host: SocketAddr,
     server_public_key: ssh_key::PublicKey,
     user_public_key: Option<ssh_key::PublicKey>,
-) -> (SocketAddr, Arc<RasState>) {
+) -> (SocketAddr, Arc<RasState>, Arc<DirectorState>) {
     let listener = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -335,7 +342,7 @@ async fn start_ras(
         current_session: Mutex::new(Some(device_session)),
     });
 
-    let app = fake_ras(ras_state.clone()).merge(fake_director(director_state));
+    let app = fake_ras(ras_state.clone()).merge(fake_director(director_state.clone()));
 
     tokio::spawn(async move {
         axum::Server::from_tcp(listener)
@@ -345,14 +352,16 @@ async fn start_ras(
             .unwrap();
     });
 
-    (addr, ras_state)
+    (addr, ras_state, director_state)
 }
 
 static ONCE: OnceCell<()> = OnceCell::const_new();
 
 // This starts separate fake ras/http and ras/ssh servers. This is not
 // ideal but otherwise we need to start and share a tokio runtime
-async fn setup(user_key: Option<ssh_key::PublicKey>) -> (RacConfig, Arc<RasState>) {
+async fn setup(
+    user_key: Option<ssh_key::PublicKey>,
+) -> (RacConfig, Arc<RasState>, Arc<DirectorState>) {
     ONCE.get_or_init(|| async {
         env_logger::init();
         color_eyre::install().unwrap();
@@ -361,7 +370,7 @@ async fn setup(user_key: Option<ssh_key::PublicKey>) -> (RacConfig, Arc<RasState
 
     let (ssh_addr, public_key) = start_device_ssh().await;
 
-    let (ras_addr, director_state) = start_ras(ssh_addr, public_key, user_key).await;
+    let (ras_addr, ras_state, director_state) = start_ras(ssh_addr, public_key, user_key).await;
 
     let mut rac_config = RacConfig::default();
 
@@ -386,7 +395,7 @@ async fn setup(user_key: Option<ssh_key::PublicKey>) -> (RacConfig, Arc<RasState
 
     rac_config.device.local_tuf_repo_path = tmp_dir;
 
-    (rac_config, director_state)
+    (rac_config, ras_state, director_state)
 }
 
 // Full test of an error free execution
@@ -396,7 +405,7 @@ async fn setup(user_key: Option<ssh_key::PublicKey>) -> (RacConfig, Arc<RasState
 // Use the remote tcp forward by querying using HTTP using a standard HTTP client.
 #[tokio::test]
 async fn full_no_error() {
-    let (rac_config, director_state) = setup(None).await;
+    let (rac_config, ras_state, _) = setup(None).await;
 
     let torizon_client = TorizonClient::new(
         rac_config.clone(),
@@ -431,12 +440,47 @@ async fn full_no_error() {
     assert_eq!(resp.text().await.unwrap(), "OK");
 
     {
-        let mut current_session = director_state.current_session.lock().unwrap();
+        let mut current_session = ras_state.current_session.lock().unwrap();
         *current_session = None;
     }
 
     if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
         panic!("session did not end successfully after 5 seconds: {err:?}")
+    }
+}
+
+// Full test of an error free execution
+//
+// Starts an ssh server acting as RAS ssh API and a http acting as RAS http api
+// Keep the normal RAC session loop with a remote tcp forward, connect the forward back to RAS/http
+// Use the remote tcp forward by querying using HTTP using a standard HTTP client.
+#[tokio::test]
+async fn test_director_error() {
+    let (rac_config, _, director_state) = setup(None).await;
+
+    let torizon_client = TorizonClient::new(
+        rac_config.clone(),
+        torizon::notls_http_client(&rac_config).unwrap(),
+    );
+
+    director_state.clear();
+
+    let session = torizon_client.get_session().await.unwrap().unwrap();
+
+    device_keys::read_or_create(&rac_config.device.ssh_private_key_path)
+        .await
+        .unwrap();
+
+    let session_handler = tokio::spawn(async move {
+        rac::keep_session_loop(&rac_config, &torizon_client, &session).await
+    });
+
+    match tokio::time::timeout(Duration::from_secs(2), session_handler).await {
+        Err(err) => panic!("session did not end successfully after 2 seconds: {err:?}"),
+        Ok(res) => {
+            let err = res.unwrap().err().unwrap().to_string();
+            assert!(err.contains("Failed to verify remote-sessions metadata"));
+        }
     }
 }
 
@@ -447,7 +491,7 @@ async fn port_open(port: u16) -> Result<bool> {
 
 #[tokio::test]
 async fn test_keys_changed() {
-    let (rac_config, director_state) = setup(None).await;
+    let (rac_config, ras_state, _) = setup(None).await;
 
     let torizon_client = TorizonClient::new(
         rac_config.clone(),
@@ -474,10 +518,45 @@ async fn test_keys_changed() {
     .unwrap();
 
     {
-        let mut current_session = director_state.current_session.lock().unwrap();
+        let mut current_session = ras_state.current_session.lock().unwrap();
         let session = current_session.as_mut().unwrap();
         session.ssh.authorized_pubkeys.clear();
     }
+
+    if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
+        panic!("session did not end successfully after 5 seconds: {err:?}")
+    }
+}
+
+#[tokio::test]
+async fn test_director_changed() {
+    let (rac_config, _, director_state) = setup(None).await;
+
+    let torizon_client = TorizonClient::new(
+        rac_config.clone(),
+        torizon::notls_http_client(&rac_config).unwrap(),
+    );
+
+    let session = torizon_client.get_session().await.unwrap().unwrap();
+    let rport = session.ssh.reverse_port;
+
+    device_keys::read_or_create(&rac_config.device.ssh_private_key_path)
+        .await
+        .unwrap();
+
+    let session_handler = tokio::spawn(async move {
+        rac::keep_session_loop(&rac_config, &torizon_client, &session)
+            .await
+            .unwrap();
+    });
+
+    tokio_retry::Retry::spawn(FixedInterval::from_millis(500).take(10), || {
+        port_open(rport)
+    })
+    .await
+    .unwrap();
+
+    director_state.clear();
 
     if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
         panic!("session did not end successfully after 5 seconds: {err:?}")
@@ -550,7 +629,7 @@ impl UserSession {
 #[tokio::test]
 async fn test_embedded_server() {
     let user_key = ssh_key::PrivateKey::random(OsRng, ssh_key::Algorithm::Ed25519).unwrap();
-    let (mut rac_config, _) = setup(Some(user_key.public_key().clone())).await;
+    let (mut rac_config, _, _) = setup(Some(user_key.public_key().clone())).await;
 
     rac_config.device.session = LocalSession::Embedded(EmbeddedSession::default());
 
@@ -590,7 +669,7 @@ async fn test_embedded_server() {
 #[tokio::test]
 async fn test_spawned_sshd() {
     let user_key = ssh_key::PrivateKey::random(OsRng, ssh_key::Algorithm::Ed25519).unwrap();
-    let (mut rac_config, _) = setup(Some(user_key.public_key().clone())).await;
+    let (mut rac_config, _, _) = setup(Some(user_key.public_key().clone())).await;
 
     let mut local_session_handler = SpawnedSshdSession::default();
     local_session_handler.config_dir = "./rac-test".into();
