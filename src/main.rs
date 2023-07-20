@@ -78,6 +78,13 @@ async fn main() {
 
     debug!("Device public key is {:?}", device_pubkey.to_openssh());
 
+    if let Err(err) = tokio::fs::create_dir_all(&rac_cfg.device.local_tuf_repo_path).await {
+        warn!(
+            "could not create {:?}: {:?}",
+            &rac_cfg.device.local_tuf_repo_path, err
+        );
+    }
+
     let ras_client = Arc::new(ras_client);
 
     loop {
