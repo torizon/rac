@@ -21,7 +21,6 @@ use reqwest::header::HeaderValue;
 use reqwest::StatusCode;
 use std::io::Read;
 use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 use url::Url;
 
 #[allow(clippy::module_name_repetitions)]
@@ -299,9 +298,9 @@ impl UptaneRepositoryLoader {
             }
             Err(err) => {
                 debug!(
-                    "Could not load local root.json {:?}. Will fetch trusted root from the server",
-                    err
+                    "Could not load local root.json {err}. Will fetch trusted root from the server"
                 );
+                trace!("Error when reading root.json: {err:?}");
                 let fetched_root = torizon_client.fetch_latest_root().await?;
 
                 if let Err(err) =
@@ -319,22 +318,6 @@ impl UptaneRepositoryLoader {
         Ok(r)
     }
 
-    async fn save_trusted_root(
-        &self,
-        root: &tough::schema::Signed<tough::schema::Root>,
-    ) -> Result<()> {
-        let path = self.local_repo_path.join("root.json");
-        let mut file = tokio::fs::File::open(&path)
-            .await
-            .wrap_err(format!("{:?}", path.to_string_lossy()))?;
-
-        let content = serde_json::to_string_pretty(&root)?;
-
-        file.write_all(content.as_bytes()).await?;
-
-        Ok(())
-    }
-
     pub async fn load_remote_sessions(&self) -> Result<serde_json::Value> {
         let trusted_root =
             Self::load_trusted_root(&self.local_repo_path, &self.torizon_client).await?;
@@ -344,10 +327,6 @@ impl UptaneRepositoryLoader {
             self.repository_url.clone(),
             self.repository_url.clone(),
         );
-
-        if let Err(err) = tokio::fs::create_dir_all(&self.local_repo_path).await {
-            debug!("could not create {:?}: {:?}", &self.local_repo_path, err);
-        }
 
         repository_loader = repository_loader.transport(TorizonToughTransport::new(
             self.http_client.clone(),
@@ -364,12 +343,6 @@ impl UptaneRepositoryLoader {
             .signed
             .remote_sessions
             .clone();
-
-        let latest_trusted_root = tokio::task::spawn_blocking(move || repo.root().clone()).await?;
-
-        if let Err(err) = self.save_trusted_root(&latest_trusted_root).await {
-            warn!("could not cache latest root.json: {:?}", err);
-        }
 
         Ok(remote_sessions)
     }
