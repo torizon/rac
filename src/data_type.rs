@@ -4,6 +4,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use crate::local_session::*;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use url::Url;
 use uuid::Uuid;
@@ -53,6 +54,7 @@ pub struct SshSession {
     pub reverse_port: u16,
     pub ra_server_url: Url,
     pub ra_server_ssh_pubkey: ssh_key::PublicKey,
+    pub expires_at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

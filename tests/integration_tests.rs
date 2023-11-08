@@ -331,6 +331,7 @@ async fn start_ras(
                 ))
                 .unwrap(),
                 ra_server_ssh_pubkey: server_public_key.clone(),
+                expires_at: Utc::now() + chrono::Duration::hours(1),
             },
         }
     };
