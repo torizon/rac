@@ -10,6 +10,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use config::Config;
 use eyre::Context;
 use log::*;
@@ -93,8 +94,7 @@ async fn main() {
         tokio::select! {
             r = check_new_sessions(&ras_client, &rac_cfg) => {
                 if let Err(err) = r {
-                    debug!("{err:#?}");
-                    error!("could not get sessions: {err}. Trying later");
+                    error!("could not get sessions, trying later {err:?}");
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 } else {
                     tokio::time::sleep(rac_cfg.device.poll_timeout).await;
@@ -123,6 +123,10 @@ async fn check_new_sessions(
 
     debug!("{session:?}");
     info!("Received new session");
+
+    if Utc::now() > session.ssh.expires_at {
+        warn!("session expired at {}", session.ssh.expires_at);
+    }
 
     rac::keep_session_loop(rac_config, ras_client, &session)
         .await

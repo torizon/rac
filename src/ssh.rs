@@ -114,11 +114,17 @@ pub async fn start(
     log::info!("ssh to {}", ras_session.ra_server_url.as_str(),);
 
     let Some(server_host) = ras_session.ra_server_url.domain() else {
-        bail!("invalid ras_session.ra_server_url: {:?} no domain", ras_session.ra_server_url);
+        bail!(
+            "invalid ras_session.ra_server_url: {:?} no domain",
+            ras_session.ra_server_url
+        );
     };
 
     let Some(server_port) = ras_session.ra_server_url.port() else {
-        bail!("invalid ras_session.ra_server_url: {:?} no port", ras_session.ra_server_url);
+        bail!(
+            "invalid ras_session.ra_server_url: {:?} no port",
+            ras_session.ra_server_url
+        );
     };
 
     let mut session = connect_ssh(ssh_config, (server_host, server_port), sh).await?;
