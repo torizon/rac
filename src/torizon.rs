@@ -1,25 +1,26 @@
 // Copyright 2023 Toradex A.G.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::Cursor;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::pin::Pin;
 
 use crate::data_type::RacConfig;
 use crate::data_type::*;
 use crate::RemoteSessionsMetadata;
 use crate::Result;
-use bytes::Buf;
 use bytes::Bytes;
 use color_eyre::eyre::{self, Context};
 use eyre::bail;
 use eyre::eyre;
 
+use async_trait::async_trait;
+use futures::Stream;
+use futures::StreamExt;
 use log::*;
 use reqwest::header::HeaderValue;
 use reqwest::StatusCode;
-use std::io::Read;
 use tokio::io::AsyncReadExt;
 use url::Url;
 
@@ -184,20 +185,23 @@ fn user_agent() -> String {
 #[derive(Debug, Clone)]
 struct TorizonToughTransport {
     http: reqwest::Client,
-    rt: tokio::runtime::Handle,
 }
 
 impl TorizonToughTransport {
-    fn new(http: reqwest::Client, rt: tokio::runtime::Handle) -> Self {
-        Self { http, rt }
+    fn new(http: reqwest::Client) -> Self {
+        Self { http }
     }
 }
 
+#[async_trait]
 impl tough::Transport for TorizonToughTransport {
-    fn fetch(
+    async fn fetch(
         &self,
         url: url::Url,
-    ) -> std::result::Result<Box<dyn Read + Send>, tough::TransportError> {
+    ) -> std::result::Result<
+        Pin<Box<dyn Stream<Item = std::result::Result<Bytes, tough::TransportError>> + Send>>,
+        tough::TransportError,
+    > {
         let request = self
             .http
             .request(reqwest::Method::GET, url.clone())
@@ -210,42 +214,42 @@ impl tough::Transport for TorizonToughTransport {
                 )
             })?;
 
-        let response_bytes = self.rt.block_on(async {
-            let resp = self.http.execute(request).await.map_err(|err| {
-                tough::TransportError::new_with_cause(
-                    tough::TransportErrorKind::Other,
-                    url.clone(),
-                    err,
-                )
-            })?;
+        let resp = self.http.execute(request).await.map_err(|err| {
+            tough::TransportError::new_with_cause(
+                tough::TransportErrorKind::Other,
+                url.clone(),
+                err,
+            )
+        })?;
 
-            if resp.status() == reqwest::StatusCode::NOT_FOUND
-                || resp.status() == reqwest::StatusCode::FAILED_DEPENDENCY
-            {
-                Err(tough::TransportError::new(
-                    tough::TransportErrorKind::FileNotFound,
-                    url,
-                ))
-            } else if resp.status().is_success() {
-                resp.bytes().await.map_err(|err| {
+        if resp.status() == reqwest::StatusCode::NOT_FOUND
+            || resp.status() == reqwest::StatusCode::FAILED_DEPENDENCY
+        {
+            Err(tough::TransportError::new(
+                tough::TransportErrorKind::FileNotFound,
+                url,
+            ))
+        } else if resp.status().is_success() {
+            let bytes_stream = resp.bytes_stream().map(move |item| {
+                item.map_err(|err| {
                     tough::TransportError::new_with_cause(
                         tough::TransportErrorKind::Other,
-                        url,
+                        url.clone(),
                         err,
                     )
                 })
-            } else {
-                #[allow(clippy::unwrap_used)]
-                Err(tough::TransportError::new_with_cause(
-                    tough::TransportErrorKind::Other,
-                    url,
-                    resp.error_for_status()
-                        .expect_err("expected error response"),
-                ))
-            }
-        });
+            });
 
-        Ok(Box::new(response_bytes?.reader()))
+            Ok(bytes_stream.boxed())
+        } else {
+            #[allow(clippy::unwrap_used)]
+            Err(tough::TransportError::new_with_cause(
+                tough::TransportErrorKind::Other,
+                url,
+                resp.error_for_status()
+                    .expect_err("expected error response"),
+            ))
+        }
     }
 }
 
@@ -283,10 +287,10 @@ impl UptaneRepositoryLoader {
     async fn load_trusted_root<P: AsRef<Path>>(
         local_tuf_path: P,
         torizon_client: &TorizonClient,
-    ) -> Result<Box<dyn Read + Send>> {
+    ) -> Result<Bytes> {
         let local_root = local_tuf_path.as_ref().join("root.json");
 
-        let r: Box<dyn Read + Send> = match tokio::fs::File::open(&local_root)
+        let r = match tokio::fs::File::open(&local_root)
             .await
             .context(format!("{}", &local_root.to_string_lossy()))
         {
@@ -294,7 +298,7 @@ impl UptaneRepositoryLoader {
                 debug!("read trusted root.json from local repository");
                 let mut buf = Vec::new();
                 f.read_to_end(&mut buf).await?;
-                Box::new(Cursor::new(buf))
+                Bytes::from(buf)
             }
             Err(err) => {
                 debug!(
@@ -311,7 +315,7 @@ impl UptaneRepositoryLoader {
                     info!("saved trusted root to {}", &local_root.to_string_lossy());
                 }
 
-                Box::new(fetched_root.reader())
+                fetched_root
             }
         };
 
@@ -323,19 +327,16 @@ impl UptaneRepositoryLoader {
             Self::load_trusted_root(&self.local_repo_path, &self.torizon_client).await?;
 
         let mut repository_loader = tough::RepositoryLoader::new(
-            trusted_root,
+            &trusted_root,
             self.repository_url.clone(),
             self.repository_url.clone(),
         );
 
-        repository_loader = repository_loader.transport(TorizonToughTransport::new(
-            self.http_client.clone(),
-            tokio::runtime::Handle::current(),
-        ));
+        repository_loader =
+            repository_loader.transport(TorizonToughTransport::new(self.http_client.clone()));
         repository_loader = repository_loader.datastore(&self.local_repo_path);
 
-        // tough runs reqwest::blocking, so we need to tell tokio runtime that this is going to block
-        let repo = tokio::task::spawn_blocking(|| repository_loader.load_uptane()).await??;
+        let repo = repository_loader.load_uptane().await?;
 
         let remote_sessions = repo
             .remote_sessions()
@@ -348,10 +349,17 @@ impl UptaneRepositoryLoader {
     }
 }
 
+#[cfg(test)]
+use std::io::Read;
+
 #[allow(clippy::unwrap_used)]
-#[test]
-fn validates_remote_sessions_rsa() {
-    let trusted_root = std::fs::File::open("tests/data/root-rsa.json").unwrap();
+#[tokio::test]
+async fn validates_remote_sessions_rsa() {
+    let mut trusted_root = Vec::new();
+    std::fs::File::open("tests/data/root-rsa.json")
+        .unwrap()
+        .read_to_end(&mut trusted_root)
+        .unwrap();
 
     let repository_url = Url::parse(&format!(
         "file://{}/{}",
@@ -361,11 +369,11 @@ fn validates_remote_sessions_rsa() {
     .unwrap();
 
     let mut repository_loader =
-        tough::RepositoryLoader::new(trusted_root, repository_url.clone(), repository_url);
+        tough::RepositoryLoader::new(&trusted_root, repository_url.clone(), repository_url);
 
     repository_loader = repository_loader.transport(tough::FilesystemTransport);
 
-    let repo = repository_loader.load_uptane().unwrap();
+    let repo = repository_loader.load_uptane().await.unwrap();
 
     assert!(repo
         .remote_sessions()
@@ -376,9 +384,13 @@ fn validates_remote_sessions_rsa() {
 }
 
 #[allow(clippy::unwrap_used)]
-#[test]
-fn validates_remote_sessions_unknown_roles() {
-    let trusted_root = std::fs::File::open("tests/data/root-offline-updates.json").unwrap();
+#[tokio::test]
+async fn validates_remote_sessions_unknown_roles() {
+    let mut trusted_root = Vec::new();
+    std::fs::File::open("tests/data/root-offline-updates.json")
+        .unwrap()
+        .read_to_end(&mut trusted_root)
+        .unwrap();
 
     let repository_url = Url::parse(&format!(
         "file://{}/{}",
@@ -388,17 +400,21 @@ fn validates_remote_sessions_unknown_roles() {
     .unwrap();
 
     let mut repository_loader =
-        tough::RepositoryLoader::new(trusted_root, repository_url.clone(), repository_url);
+        tough::RepositoryLoader::new(&trusted_root, repository_url.clone(), repository_url);
 
     repository_loader = repository_loader.transport(tough::FilesystemTransport);
 
-    repository_loader.load_uptane().unwrap();
+    repository_loader.load_uptane().await.unwrap();
 }
 
 #[allow(clippy::unwrap_used)]
-#[test]
-fn validates_root_unknown_roles() {
-    let trusted_root = std::fs::File::open("tests/data/root-offline-updates-only.json").unwrap();
+#[tokio::test]
+async fn validates_root_unknown_roles() {
+    let mut trusted_root = Vec::new();
+    std::fs::File::open("tests/data/root-offline-updates-only.json")
+        .unwrap()
+        .read_to_end(&mut trusted_root)
+        .unwrap();
 
     let repository_url = Url::parse(&format!(
         "file://{}/{}",
@@ -408,11 +424,11 @@ fn validates_root_unknown_roles() {
     .unwrap();
 
     let mut repository_loader =
-        tough::RepositoryLoader::new(trusted_root, repository_url.clone(), repository_url);
+        tough::RepositoryLoader::new(&trusted_root, repository_url.clone(), repository_url);
 
     repository_loader = repository_loader.transport(tough::FilesystemTransport);
 
-    let repo = repository_loader.load_uptane().unwrap();
+    let repo = repository_loader.load_uptane().await.unwrap();
 
     assert_eq!(
         repo.remote_sessions().err().unwrap(),

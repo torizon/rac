@@ -11,7 +11,7 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.64"
+async-trait = "0.1.77"
 config = { version = "0.13.3", default-features = false, features = ["toml"] }
 env_logger = "0.10.0"
 log = "0.4.17"
@@ -27,7 +27,7 @@ color-eyre = { version = "0.6", default-features = false }
 url = { version = "2.3.1", features = ["serde"] }
 chrono = "0.4.23"
 portable-pty = "0.8.0"
-socket2 = "0.4.7"
+socket2 = "0.5.6"
 eyre = "0.6.8"
 futures = { version = "0.3.27", default-features = false, features = ["std", "alloc"] }
 nix = { version = "0.26.2", default-features = false, features = ["user", "fs"] }
@@ -48,5 +48,5 @@ serde_json = "1.0.93"
 tempfile = "3.4.0"
 reqwest = { version = "0.11.13", default-features = false, features = ["blocking"] }
 tokio-retry = "0.3.0"
-ring = { version = "0.16.20", features = ["std"] }
+ring = { version = "0.17", features = ["std"] }
 olpc-cjson = "0.1.3"
