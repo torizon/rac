@@ -65,6 +65,7 @@ This configuration should work for a default TorizonCore image:
 ssh_private_key_path = "/home/torizon/run/rac/device-key-01.sec"
 local_tuf_repo_path = "/var/run/rac/uptane-repo"
 unprivileged_user_group = "torizon:torizon"
+poll_timeout = { secs = 60, nanos = 0 }`
 ```
 
 
