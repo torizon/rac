@@ -22,6 +22,14 @@ use rac::{
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    #[allow(clippy::print_stdout)]
+    if args.get(1).unwrap_or(&String::new()) == "--version" {
+        println!("{}", torizon::user_agent());
+        return;
+    }
+
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "rac=info");
     }
