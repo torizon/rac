@@ -1,0 +1,34 @@
+{
+  "_type": "Remote-Sessions",
+  "expires": "2034-03-12T15:48:31Z",
+  "remote_sessions": {
+    "ssh": {
+      "authorized_keys": {
+        "84620270886dabc51c9ace026b0a03e63abc4796b0703e344997b4a7e0f1ce5a": {
+          "meta": {
+            "name": "integration tests key"
+          },
+          "pubkey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOfgyvDfxMI1lfrHBWZSEnIX8isPMdg8CZLNKB7W4rj/"
+        },
+        "be4081e7ed48777a477840dabde16cc4e7a7265185dd62a079d23a1e171aaa63": {
+          "meta": {
+            "name": "added by ras-client.rb"
+          },
+          "pubkey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAVm7kYbd583OSvRGwLmiHdfRQXpg/6nYqx7us15OA9C sm@0io.eu"
+        }
+      },
+      "properties_version": "v1alpha",
+      "ra_server_hosts": [
+        "localhost",
+        "ras.dev.torizon.io"
+      ],
+      "ra_server_ssh_pubkeys": [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOfgyvDfxMI1lfrHBWZSEnIX8isPMdg8CZLNKB7W4rj/",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKAS7Oh6SImIYEOaYhCy+h+daRfNytXle+sKGtqhZWZx",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMSQy6JGnIxrVMsi4xi2Goq48Dy1ilQ8wvaurQU3TSQe"
+      ]
+    },
+    "version": "v1alpha"
+  },
+  "version": 87
+}
