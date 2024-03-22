@@ -59,7 +59,7 @@ struct DirectorState {
 }
 
 impl DirectorState {
-    fn generate(
+    async fn generate(
         authorized_keys: Vec<ssh_key::PublicKey>,
         ra_server_pubkeys: Vec<ssh_key::PublicKey>,
     ) -> Result<DirectorState> {
@@ -90,7 +90,7 @@ impl DirectorState {
             _extra: HashMap::new(),
         };
 
-        let signed_root = Self::sign(&key_pair, root)?;
+        let signed_root = Self::sign(&key_pair, root).await?;
 
         let mut authorized_keys_map = HashMap::<usize, serde_json::Value>::new();
 
@@ -113,7 +113,7 @@ impl DirectorState {
             _extra: HashMap::new(),
         };
 
-        let signed_rs = Self::sign(&key_pair, remote_sessions)?;
+        let signed_rs = Self::sign(&key_pair, remote_sessions).await?;
 
         Ok(Self {
             root: signed_root,
@@ -121,7 +121,7 @@ impl DirectorState {
         })
     }
 
-    fn sign<T: tough::schema::Role>(key: &dyn Sign, payload: T) -> Result<Signed<T>> {
+    async fn sign<T: tough::schema::Role>(key: &dyn Sign, payload: T) -> Result<Signed<T>> {
         let rng = ring::rand::SystemRandom::new();
 
         let mut data = Vec::new();
@@ -131,7 +131,7 @@ impl DirectorState {
         );
 
         payload.serialize(&mut ser)?;
-        let sig = key.sign(&data, &rng).unwrap();
+        let sig = key.sign(&data, &rng).await.unwrap();
 
         let mut signed = Signed {
             signed: payload,
@@ -146,9 +146,9 @@ impl DirectorState {
         Ok(signed)
     }
 
-    fn clear(&self) {
+    async fn clear(&self) {
         let mut remote_sessions = self.remote_sessions.lock().unwrap();
-        let new_state = DirectorState::generate(vec![], vec![]).unwrap();
+        let new_state = DirectorState::generate(vec![], vec![]).await.unwrap();
         *remote_sessions = new_state.remote_sessions.lock().unwrap().clone();
     }
 }
@@ -336,8 +336,11 @@ async fn start_ras(
         }
     };
 
-    let director_state =
-        Arc::new(DirectorState::generate(vec![user_public_key], vec![server_public_key]).unwrap());
+    let director_state = Arc::new(
+        DirectorState::generate(vec![user_public_key], vec![server_public_key])
+            .await
+            .unwrap(),
+    );
 
     let ras_state = Arc::new(RasState {
         current_session: Mutex::new(Some(device_session)),
@@ -464,7 +467,7 @@ async fn test_director_error() {
         torizon::notls_http_client(&rac_config).unwrap(),
     );
 
-    director_state.clear();
+    director_state.clear().await;
 
     let session = torizon_client.get_session().await.unwrap().unwrap();
 
@@ -557,7 +560,7 @@ async fn test_director_changed() {
     .await
     .unwrap();
 
-    director_state.clear();
+    director_state.clear().await;
 
     if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
         panic!("session did not end successfully after 5 seconds: {err:?}")
