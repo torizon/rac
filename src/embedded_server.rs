@@ -150,7 +150,7 @@ impl DeviceConnection {
         session
             .close(channel_id)
             .await
-            .map_err(|_| eyre!("could not close channel {channel_id:?}"))?;
+            .map_err(|()| eyre!("could not close channel {channel_id:?}"))?;
 
         Ok(())
     }

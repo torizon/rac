@@ -113,7 +113,7 @@ pub async fn keep_session_loop(
                 info!("ssh session ended");
                 break;
             },
-            _ = tokio::time::sleep(poll_timeout) => {
+            () = tokio::time::sleep(poll_timeout) => {
                 let new_session = client.get_session().await?.map(|s| s.ssh);
 
                 match session_still_valid(client, &session.ssh, new_session.as_ref()).await? {

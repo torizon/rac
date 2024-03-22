@@ -118,7 +118,7 @@ impl SessionLifecycle for EmbeddedSession {
             match embedded_server::start_with(igress, allowed_public_keys, server_key_path, shell)
                 .await
             {
-                Ok(_) => info!("pty session finished"),
+                Ok(()) => info!("pty session finished"),
                 Err(err) => warn!("pty session finished with error: {err:?}"),
             };
         });

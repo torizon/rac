@@ -605,7 +605,7 @@ impl UserSession {
     }
 
     async fn ready(&mut self) -> Result<bool> {
-        let mut channel = self.session.channel_open_session().await?;
+        let channel = self.session.channel_open_session().await?;
 
         channel
             .request_pty(true, "xterm", 200, 200, 200, 200, &[])
@@ -680,7 +680,7 @@ async fn test_spawned_sshd() {
     local_session_handler.strict_mode = false;
 
     // On CI we run as root, so set user to a normal user and set permissions in config dir
-    let user = if std::env::var("CI").ok().unwrap_or(String::new()) == "true" {
+    let user = if std::env::var("CI").ok().unwrap_or_default() == "true" {
         if let Err(err) = std::fs::create_dir("./rac-test") {
             debug!("could not create config_dir: {}", err)
         }
