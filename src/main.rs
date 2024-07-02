@@ -95,10 +95,8 @@ async fn main() {
             r = check_new_sessions(&ras_client, &rac_cfg) => {
                 if let Err(err) = r {
                     error!("could not get sessions, trying later {err:?}");
-                    tokio::time::sleep(Duration::from_secs(3)).await;
-                } else {
-                    tokio::time::sleep(rac_cfg.device.poll_timeout).await;
                 }
+                tokio::time::sleep(rac_cfg.device.poll_timeout).await;
             }
         }
     }
