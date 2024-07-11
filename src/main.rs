@@ -7,6 +7,7 @@
 #![warn(clippy::print_stdout)]
 #![warn(clippy::print_stderr)]
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,6 +37,8 @@ async fn main() {
 
     let file = if let Ok(f) = std::env::var("CONFIG_FILE") {
         f
+    } else if Path::new("/etc/rac/client.toml").exists() {
+        "/etc/rac/client.toml".to_owned()
     } else {
         "client.toml".to_owned()
     };
