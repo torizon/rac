@@ -9,7 +9,6 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use chrono::Utc;
 use config::Config;
