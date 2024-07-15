@@ -171,7 +171,8 @@ pub fn notls_http_client(config: &RacConfig) -> Result<reqwest::Client> {
     Ok(cb.build()?)
 }
 
-fn user_agent() -> String {
+#[must_use]
+pub fn user_agent() -> String {
     format!(
         "RAC/{} ({}; {}; rustc-{}-{})",
         env!("VERGEN_GIT_SEMVER"),
