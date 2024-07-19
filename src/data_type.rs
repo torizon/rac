@@ -38,6 +38,8 @@ pub struct DeviceConfig {
     pub local_tuf_repo_path: PathBuf,
     #[serde(skip_serializing, default = "default_poll_timeout")]
     pub poll_timeout: Duration,
+    #[serde(skip_serializing, default = "default_validation_poll_timeout")]
+    pub validation_poll_timeout: Duration,
     pub session: LocalSession,
     pub unprivileged_user_group: Option<String>,
 }
@@ -94,6 +96,7 @@ impl Default for DeviceConfig {
             ssh_private_key_path: "device-key.sec".into(),
             local_tuf_repo_path: default_local_config_path(),
             poll_timeout: default_poll_timeout(),
+            validation_poll_timeout: default_validation_poll_timeout(),
             session: LocalSession::default(),
             unprivileged_user_group: None,
         }
@@ -111,6 +114,10 @@ impl Default for LocalSession {
 }
 
 fn default_poll_timeout() -> Duration {
+    Duration::from_secs(3)
+}
+
+fn default_validation_poll_timeout() -> Duration {
     Duration::from_secs(3)
 }
 

@@ -8,6 +8,7 @@
 #![warn(clippy::print_stderr)]
 
 pub mod data_type;
+pub mod dbus;
 pub mod device_keys;
 pub mod local_session;
 pub mod torizon;
@@ -20,15 +21,20 @@ mod ssh;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use dbus::Event;
 use eyre::bail;
 use eyre::eyre;
 use eyre::Context;
 
+use futures::Stream;
+use russh::client::Handle;
+use ssh::Client;
 use tokio::select;
 
 use crate::data_type::RacConfig;
 use crate::data_type::*;
 use crate::torizon::*;
+use futures::stream::StreamExt;
 use log::*;
 
 type Result<T> = color_eyre::Result<T>;
@@ -75,11 +81,15 @@ pub fn drop_privileges(config: &RacConfig) -> Result<()> {
     }
 }
 
-pub async fn keep_session_loop(
+pub async fn keep_session_loop<S>(
     config: &RacConfig,
     client: &TorizonClient,
     session: &DeviceSession,
-) -> Result<()> {
+    dbus_events: &mut S,
+) -> Result<()>
+where
+    S: Stream<Item = Event> + Unpin,
+{
     let mut session_type = config.device.session.clone();
 
     let mut wait_handle = session_type
@@ -98,38 +108,73 @@ pub async fn keep_session_loop(
     }
 
     let mut session_handle = ssh::start(config, &session.ssh, Arc::new(session_type)).await?;
-    let poll_timeout = config.device.poll_timeout;
+    let poll_timeout = config.device.validation_poll_timeout;
 
     loop {
         select! {
+            () = tokio::time::sleep(poll_timeout) => {
+
+                match disconnect_if_session_invalid(client, session, &session_handle).await? {
+                    ValidSession::Valid =>
+                        continue,
+                    _invalid =>
+                        break,
+                };
+            },
+            event = dbus_events.next() => {
+                debug!("dbus event received while ssh session is active");
+                if let Some(Event::PollRasNow(_)) = event {
+                    debug!("checking session is still valid");
+
+                    match disconnect_if_session_invalid(client, session, &session_handle).await? {
+                        ValidSession::Valid =>
+                            continue,
+                        _invalid =>
+                            break,
+                    };  
+                }
+            },
             r = &mut wait_handle => {
-                error!("Local session handle exited unexpectedly: {r:?}");
+                error!("local session handle exited unexpectedly: {r:?}");
                 break;
             },
             h = &mut session_handle => {
                 if let Err(err) = h {
-                    error!("Error with ssh session: {:?}", err);
+                    error!("error with ssh session: {:?}", err);
                 }
                 info!("ssh session ended");
                 break;
             },
-            () = tokio::time::sleep(poll_timeout) => {
-                let new_session = client.get_session().await?.map(|s| s.ssh);
-
-                match session_still_valid(client, &session.ssh, new_session.as_ref()).await? {
-                    ValidSession::Valid =>
-                        debug!("Session still valid"),
-                    invalid => {
-                        warn!("session no longer valid ({invalid:?}), disconnecting client");
-                        session_handle.disconnect(russh::Disconnect::ByApplication, "disconnect, session not valid", "en").await?;
-                        break;
-                    },
-                }
-            }
         }
     }
 
     Ok(())
+}
+
+async fn disconnect_if_session_invalid(
+    torizon_client: &TorizonClient,
+    session: &DeviceSession,
+    session_handle: &Handle<Client>,
+) -> Result<ValidSession> {
+    let new_session = torizon_client.get_session().await?.map(|s| s.ssh);
+
+    match is_session_valid(torizon_client, &session.ssh, new_session.as_ref()).await? {
+        ValidSession::Valid => {
+            info!("session still valid");
+            Ok(ValidSession::Valid)
+        }
+        invalid => {
+            warn!("session no longer valid ({invalid:?}), disconnecting client");
+            session_handle
+                .disconnect(
+                    russh::Disconnect::ByApplication,
+                    "disconnect, session not valid",
+                    "en",
+                )
+                .await?;
+            Ok(invalid)
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -202,7 +247,7 @@ async fn valid_session_metadata(
     }
 }
 
-async fn session_still_valid(
+async fn is_session_valid(
     torizon_client: &TorizonClient,
     old: &SshSession,
     new: Option<&SshSession>,
@@ -264,7 +309,7 @@ pub(crate) mod test {
     pub fn setup() {
         INIT.call_once(|| {
             env_logger::init();
-            color_eyre::install().expect("error installed color_eyre");
+            color_eyre::install().expect("error installing color_eyre");
         });
     }
 }
