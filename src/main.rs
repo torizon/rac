@@ -8,17 +8,21 @@
 #![warn(clippy::print_stderr)]
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use chrono::Utc;
 use config::Config;
 use eyre::Context;
+use futures::stream::StreamExt;
+use futures::Stream;
 use log::*;
-use rac::{data_type::RacConfig, device_keys};
+use rac::data_type::DeviceSession;
+use rac::dbus::Event;
+use rac::{data_type::RacConfig, dbus, device_keys};
 use rac::{
     drop_privileges,
     torizon::{self, *},
 };
+use tokio_stream::wrappers::ReceiverStream;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -94,26 +98,68 @@ async fn main() {
         );
     }
 
+    let mut dbus_events = start_dbus_channel();
+
     let ras_client = Arc::new(ras_client);
 
+    poll_and_start_session(&ras_client, &rac_cfg, &mut dbus_events).await;
+
+    let poll_timer = tokio::time::sleep(rac_cfg.device.poll_timeout);
+    tokio::pin!(poll_timer);
+
     loop {
-        debug!("checking for new sessions for this device");
+        debug!("waiting for new sessions for this device");
 
         tokio::select! {
-            r = check_new_sessions(&ras_client, &rac_cfg) => {
-                if let Err(err) = r {
-                    error!("could not get sessions, trying later {err:?}");
+            () = &mut poll_timer =>
+                poll_and_start_session(&ras_client, &rac_cfg, &mut dbus_events).await,
+            event = dbus_events.next() => {
+                if let Some(Event::PollRasNow(_)) = event {
+                    poll_and_start_session(&ras_client, &rac_cfg, &mut dbus_events).await;
+                } else {
+                    debug!("event received via dbus, no session active: {:?}", event);
+                    continue; // do not reset timer
                 }
-                tokio::time::sleep(rac_cfg.device.poll_timeout).await;
-            }
+            },
         }
+
+        poll_timer
+            .as_mut()
+            .reset(tokio::time::Instant::now() + rac_cfg.device.poll_timeout);
     }
 }
 
-async fn check_new_sessions(
+async fn poll_and_start_session<S>(
     ras_client: &TorizonClient,
-    rac_config: &RacConfig,
-) -> Result<(), eyre::Report> {
+    rac_cfg: &RacConfig,
+    dbus_events: &mut S,
+) where
+    S: Stream<Item = Event> + Unpin,
+{
+    match poll_for_new_sessions(ras_client).await {
+        Ok(Some(session)) => {
+            if let Err(err) =
+                rac::keep_session_loop(rac_cfg, ras_client, &session, dbus_events).await
+            {
+                error!("error in ssh session loop: {:?}", err);
+            } else {
+                info!("ssh session closed");
+            }
+        }
+        Ok(None) => info!("no sessions available in RAS"),
+        Err(err) => error!("could not get sessions, trying later {err:?}"),
+    }
+}
+
+fn start_dbus_channel() -> impl Stream<Item = dbus::Event> {
+    let rx = dbus::client::start();
+    debug!("subscribed to dbus signals");
+    ReceiverStream::new(rx)
+}
+
+async fn poll_for_new_sessions(
+    ras_client: &TorizonClient,
+) -> Result<Option<DeviceSession>, eyre::Report> {
     let session = ras_client
         .get_session()
         .await
@@ -122,7 +168,7 @@ async fn check_new_sessions(
     let session = match session {
         None => {
             debug!("No sessions available for this device");
-            return Ok(());
+            return Ok(None);
         }
         Some(s) => s,
     };
@@ -134,11 +180,5 @@ async fn check_new_sessions(
         warn!("session expired at {}", session.ssh.expires_at);
     }
 
-    rac::keep_session_loop(rac_config, ras_client, &session)
-        .await
-        .wrap_err("Error in ssh session loop")?;
-
-    info!("ssh session closed");
-
-    Ok(())
+    Ok(Some(session))
 }

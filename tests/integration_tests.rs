@@ -31,6 +31,7 @@ use axum::{
 };
 use rac::{
     data_type::{DeviceSession, LocalSession, RacConfig, SshSession},
+    dbus::Event,
     device_keys,
     local_session::{EmbeddedSession, SpawnedSshdSession, TargetHostSession},
     torizon::{self, TorizonClient},
@@ -43,6 +44,7 @@ use tokio::{
     sync::OnceCell,
 };
 use tokio_retry::strategy::FixedInterval;
+use tokio_stream::wrappers::ReceiverStream;
 use tough::{
     schema::{RemoteSessions, RoleKeys, RoleType, Root, Signed},
     sign::Sign,
@@ -425,7 +427,8 @@ async fn full_no_error() {
     let session_rport = session.ssh.reverse_port;
 
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session)
+        let mut dbus_events = futures::stream::pending();
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
     });
@@ -476,7 +479,8 @@ async fn test_director_error() {
         .unwrap();
 
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session).await
+        let mut dbus_events = futures::stream::pending();
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events).await
     });
 
     match tokio::time::timeout(Duration::from_secs(2), session_handler).await {
@@ -510,7 +514,8 @@ async fn test_keys_changed() {
         .unwrap();
 
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session)
+        let mut dbus_events = futures::stream::pending();
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
     });
@@ -533,6 +538,56 @@ async fn test_keys_changed() {
 }
 
 #[tokio::test]
+async fn test_keys_changed_without_poll() {
+    let (mut rac_config, ras_state, _) = setup(None).await;
+
+    // Never poll unless we receive dbus event, so session_handler is only complete if the event
+    // is processed
+    rac_config.device.validation_poll_timeout = Duration::from_secs(3600);
+
+    let torizon_client = TorizonClient::new(
+        rac_config.clone(),
+        torizon::notls_http_client(&rac_config).unwrap(),
+    );
+
+    let session = torizon_client.get_session().await.unwrap().unwrap();
+    let rport = session.ssh.reverse_port;
+
+    device_keys::read_or_create(&rac_config.device.ssh_private_key_path)
+        .await
+        .unwrap();
+
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+
+    let session_handler = tokio::spawn(async move {
+        let mut dbus_events = ReceiverStream::new(rx);
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
+            .await
+            .unwrap();
+    });
+
+    tokio_retry::Retry::spawn(FixedInterval::from_millis(500).take(10), || {
+        port_open(rport)
+    })
+    .await
+    .unwrap();
+
+    {
+        let mut current_session = ras_state.current_session.lock().unwrap();
+        let session = current_session.as_mut().unwrap();
+        session.ssh.authorized_pubkeys.clear();
+    }
+
+    tx.send(Event::PollRasNow(serde_json::Value::Null))
+        .await
+        .unwrap();
+
+    if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
+        panic!("session did not end after 5 seconds: {err:?}")
+    }
+}
+
+#[tokio::test]
 async fn test_director_changed() {
     let (rac_config, _, director_state) = setup(None).await;
 
@@ -548,8 +603,10 @@ async fn test_director_changed() {
         .await
         .unwrap();
 
+    let mut dbus_events = futures::stream::pending();
+
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session)
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
     });
@@ -651,7 +708,8 @@ async fn test_embedded_server() {
         .unwrap();
 
     tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session)
+        let mut dbus_events = futures::stream::pending();
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
     });
@@ -687,6 +745,7 @@ async fn test_spawned_sshd() {
 
         let uid = nix::unistd::User::from_name("ci").unwrap().unwrap().uid;
         let gid = nix::unistd::Group::from_name("ci").unwrap().unwrap().gid;
+
         nix::unistd::chown("./rac-test", Some(uid), Some(gid)).unwrap();
 
         "ci".to_owned()
@@ -712,7 +771,8 @@ async fn test_spawned_sshd() {
         .unwrap();
 
     let _session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session)
+        let mut dbus_events = futures::stream::pending();
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
     });

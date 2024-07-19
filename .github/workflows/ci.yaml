@@ -13,15 +13,15 @@ env:
 jobs:
   test:
     name: Test Suite
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions/cache@v3
         with:
           path: |
@@ -38,14 +38,14 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions/cache@v3
         with:
           path: |
@@ -56,21 +56,21 @@ jobs:
             target/
           key: tzn-rac-default-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            tzn-rac-default-    
+            tzn-rac-default-
       - run: git config --global --add safe.directory $PWD
       - run: cargo clippy -- -Wclippy::pedantic
       - run: cargo fmt --check
 
   build-armv7:
     name: Build armv7
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions/cache@v3
         with:
           path: |
@@ -92,14 +92,14 @@ jobs:
 
   build-aarch64:
     name: Build aarch64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/toradex/torizon-rac-ci:4986e5c
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions/cache@v3
         with:
           path: |
