@@ -108,11 +108,11 @@ where
     }
 
     let mut session_handle = ssh::start(config, &session.ssh, Arc::new(session_type)).await?;
-    let poll_timeout = config.device.validation_poll_timeout;
+    let validation_poll_timeout = config.device.validation_poll_timeout;
 
     loop {
         select! {
-            () = tokio::time::sleep(poll_timeout) => {
+            () = tokio::time::sleep(validation_poll_timeout) => {
 
                 match disconnect_if_session_invalid(client, session, &session_handle).await? {
                     ValidSession::Valid =>
