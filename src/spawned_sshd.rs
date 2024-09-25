@@ -161,9 +161,23 @@ pub(crate) async fn spawn_sshd(
     config: &SpawnedSshdSession,
     allowed_keys: &[PublicKey],
 ) -> Result<(u16, impl Future<Output = Result<ExitStatus>>)> {
-    tokio::fs::create_dir_all(&config.config_dir)
-        .await
-        .wrap_err(format!("creating config_dir: {:?}", config.config_dir))?;
+    match tokio::fs::create_dir_all(&config.config_dir).await {
+        Ok(_) => {
+            debug!("Successfully created config_dir: {:?}", config.config_dir);
+        }
+        Err(err) if err.kind() == ErrorKind::Other => {
+            return Err(err).wrap_err(format!(
+                "I/O error when creating config_dir: {:?}",
+                config.config_dir
+            ));
+        }
+        Err(err) => {
+            return Err(err).wrap_err(format!(
+                "Failed to create config_dir: {:?}",
+                config.config_dir
+            ));
+        }
+    }
 
     tokio::fs::set_permissions(&config.config_dir, Permissions::from_mode(0o700)).await?;
 
