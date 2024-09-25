@@ -56,6 +56,7 @@ The `device` section of the config file has three configurable values:
 * `ssh_private_key_path` configures the location the private key the device will use to open up its tunnel to the server. If the file does not yet exist, a new key will be created (and saved for re-use). This option is mandatory. If `unprivileged_user_group` is set, this file must be owned by the unprivileged user.
 * `local_tuf_repo_path` configures the location where the Uptane metadata will be stored. This option is mandatory.
 * `poll_timeout` configures how frequently RAC should poll the Torizon Platform API to check for a remote session. It defaults to 3 seconds.
+* `validation_poll_timeout` configures how frequently RAC should validate the active SSH session to ensure it remains valid. It defaults to 60 seconds.
 
 This configuration should work for a default TorizonCore image:
 
@@ -121,6 +122,12 @@ shell = "/bin/bash"
 If `server_key_path` is not set, a new key will be generated for each session. `shell` is optional and the default is shown above.
 
 A new server host key will be created if `server_key_path` does not exist.
+
+### D-Bus events
+
+RAC will listen to D-Bus messages on `io.torizon.TznService1` that control RAC's internal state. RAC will poll for new remote sessions and validate current ones based off the messages received in this bus. Withi Torizon OS, these messages come from the [`tzn-mqtt`](https://github.com/torizon/tzn-mqtt/) application which relays MQTT messages from Torizon Platform to the local D-Bus session in the interface specified above.
+
+In the absence of messages on the bus, RAC will continue to poll the Torizon Platform through HTTPS.
 
 ### Target Host
 
