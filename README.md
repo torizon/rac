@@ -1,4 +1,4 @@
-# RAC - Remote Access Client for TorizonCore
+# RAC - Remote Access Client for Torizon OS
 
 Starts a remote session, allowing a user to connect to a device using ssh.
 
@@ -35,9 +35,9 @@ There are two main sections that a RAC config file requires:
 
 ### `torizon`: Torizon Platform API Connection
 
-RAC connects to the Torizon Platform remote access service API through the Torizon device gateway, using mutual TLS. The config file needs to specify the server URL to connect to (the URL of the device gateway), the path where the server's certificate is located, and the path where the client's certifiecate and private are located. In TorizonCore, the default device gateway cert is provided in the root filesystem image at `/usr/lib/sota/root.crt`. The client cert and key are placed in `/var/sota/import` at provisioning time.
+RAC connects to the Torizon Platform remote access service API through the Torizon device gateway, using mutual TLS. The config file needs to specify the server URL to connect to (the URL of the device gateway), the path where the server's certificate is located, and the path where the client's certifiecate and private are located. In Torizon OS, the default device gateway cert is provided in the root filesystem image at `/usr/lib/sota/root.crt`. The client cert and key are placed in `/var/sota/import` at provisioning time.
 
-This configuration should work for a default TorizonCore image:
+This configuration should work for a default Torizon OS image:
 
 ```
 [torizon]
@@ -58,7 +58,7 @@ The `device` section of the config file has three configurable values:
 * `poll_timeout` configures how frequently RAC should poll the Torizon Platform API to check for a remote session. It defaults to 3 seconds.
 * `validation_poll_timeout` configures how frequently RAC should validate the active SSH session to ensure it remains valid. It defaults to 60 seconds.
 
-This configuration should work for a default TorizonCore image:
+This configuration should work for a default Torizon OS image:
 
 
 ```
