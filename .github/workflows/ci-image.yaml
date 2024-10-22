@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-ci
+  IMAGE_NAME: ${{ github.repository }}-ci:a190170
 
 jobs:
   build-and-push-image:
@@ -42,4 +42,6 @@ jobs:
           context: .
           file: Dockerfile-ci
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
