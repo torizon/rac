@@ -15,7 +15,7 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/${{ github.repository }}-ci
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
@@ -40,7 +40,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/${{ github.repository }}-ci
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
@@ -65,7 +65,7 @@ jobs:
     name: Build armv7
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/${{ github.repository }}-ci
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
@@ -94,7 +94,7 @@ jobs:
     name: Build aarch64
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/${{ github.repository }}-ci
+      image: ghcr.io/toradex/torizon-rac-ci:ec304dd
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
