@@ -15,7 +15,7 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/${{ github.repository }}-ci
+      image: ghcr.io/${{ github.repository }}-ci:a190170
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.github_token }}
