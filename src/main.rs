@@ -14,7 +14,8 @@ use chrono::Utc;
 use config::Config;
 use eyre::Context;
 use futures::stream::StreamExt;
-use futures::Stream;
+use futures::FutureExt;
+use futures::{future, Stream};
 use log::*;
 use rac::data_type::DeviceSession;
 use rac::dbus::Event;
@@ -46,6 +47,8 @@ async fn main() {
     }
 
     color_eyre::install().expect("could no initialize color_eyre");
+
+    info!("{} started", torizon::user_agent());
 
     let file = if let Ok(f) = std::env::var("CONFIG_FILE") {
         f
@@ -101,7 +104,7 @@ async fn main() {
         );
     }
 
-    let mut dbus_events = start_dbus_channel();
+    let mut dbus_events = start_dbus_channel(&rac_cfg);
 
     let ras_client = Arc::new(ras_client);
 
@@ -154,10 +157,15 @@ async fn poll_and_start_session<S>(
     }
 }
 
-fn start_dbus_channel() -> impl Stream<Item = dbus::Event> {
-    let rx = dbus::client::start();
-    debug!("subscribed to dbus signals");
-    ReceiverStream::new(rx)
+fn start_dbus_channel(rac_cfg: &RacConfig) -> Box<dyn Stream<Item = dbus::Event> + Unpin> {
+    if rac_cfg.device.enable_dbus_client {
+        let rx = dbus::client::start();
+        info!("subscribed to dbus signals");
+        Box::new(ReceiverStream::new(rx))
+    } else {
+        info!("dbus client disabled");
+        Box::new(future::pending().into_stream())
+    }
 }
 
 async fn poll_for_new_sessions(

@@ -58,6 +58,7 @@ AllowAgentForwarding no
 AllowTcpForwarding yes
 Subsystem       sftp    internal-sftp
 PrintMotd  no
+PrintLastLog no
 "#,
         strict = if config.strict_mode { "yes" } else { "no" }
     );
@@ -162,7 +163,7 @@ pub(crate) async fn spawn_sshd(
     allowed_keys: &[PublicKey],
 ) -> Result<(u16, impl Future<Output = Result<ExitStatus>>)> {
     match tokio::fs::create_dir_all(&config.config_dir).await {
-        Ok(_) => {
+        Ok(()) => {
             debug!("Successfully created config_dir: {:?}", config.config_dir);
         }
         Err(err) if err.kind() == ErrorKind::Other => {

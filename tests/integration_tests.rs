@@ -250,11 +250,11 @@ impl russh::server::Handler for DeviceConnection {
     type Error = eyre::Error;
 
     async fn tcpip_forward(
-        self,
+        &mut self,
         _address: &str,
         port: &mut u32,
-        session: Session,
-    ) -> Result<(Self, bool, Session)> {
+        session: &mut Session,
+    ) -> Result<bool> {
         let port = *port;
         let session_handle = session.handle();
 
@@ -288,15 +288,15 @@ impl russh::server::Handler for DeviceConnection {
             }
         });
 
-        Ok((self, true, session))
+        Ok(true)
     }
 
     async fn auth_publickey(
-        self,
+        &mut self,
         _user: &str,
         _public_key: &russh_keys::key::PublicKey,
-    ) -> Result<(Self, Auth)> {
-        Ok((self, russh::server::Auth::Accept))
+    ) -> Result<Auth> {
+        Ok(russh::server::Auth::Accept)
     }
 }
 
@@ -631,10 +631,10 @@ impl russh::client::Handler for UserClient {
     type Error = eyre::ErrReport;
 
     async fn check_server_key(
-        self,
+        &mut self,
         _server_public_key: &russh_keys::key::PublicKey,
-    ) -> Result<(Self, bool)> {
-        Ok((self, true))
+    ) -> Result<bool> {
+        Ok(true)
     }
 }
 

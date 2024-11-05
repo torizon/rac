@@ -162,21 +162,17 @@ impl russh::server::Handler for DeviceConnection {
 
     #[allow(unused_variables, clippy::unused_async)]
     async fn channel_open_session(
-        mut self,
+        &mut self,
         channel: Channel<Msg>,
-        session: Session,
-    ) -> Result<(Self, bool, Session)> {
+        session: &mut Session,
+    ) -> Result<bool> {
         info!("Got session request");
         self.pty_chan = Some(channel);
-        Ok((self, true, session))
+        Ok(true)
     }
 
     #[allow(clippy::unused_async)]
-    async fn shell_request(
-        mut self,
-        channel: ChannelId,
-        session: Session,
-    ) -> Result<(Self, Session)> {
+    async fn shell_request(&mut self, channel: ChannelId, session: &mut Session) -> Result<()> {
         debug!("got shell_request for {channel:?}");
 
         if let Some(req) = self.pty_session_req.take() {
@@ -197,18 +193,18 @@ impl russh::server::Handler for DeviceConnection {
             bail!("Could not get channel to start session")
         };
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn window_change_request(
-        self,
+        &mut self,
         channel: ChannelId,
         col_width: u32,
         row_height: u32,
         pix_width: u32,
         pix_height: u32,
-        session: Session,
-    ) -> Result<(Self, Session)> {
+        _session: &mut Session,
+    ) -> Result<()> {
         debug!("window_change_request received for {channel:?}");
 
         let size_chan = self
@@ -227,12 +223,12 @@ impl russh::server::Handler for DeviceConnection {
             .send(size)
             .wrap_err("sending new size to pty size channel")?;
 
-        Ok((self, session))
+        Ok(())
     }
 
     #[allow(unused_variables)]
     async fn pty_request(
-        mut self,
+        &mut self,
         channel: ChannelId,
         term: &str,
         col_width: u32,
@@ -240,8 +236,8 @@ impl russh::server::Handler for DeviceConnection {
         pix_width: u32,
         pix_height: u32,
         modes: &[(Pty, u32)],
-        session: Session,
-    ) -> Result<(Self, Session)> {
+        session: &mut Session,
+    ) -> Result<()> {
         info!("got pty_request on {channel:?}");
 
         let (size_tx, size_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -267,14 +263,14 @@ impl russh::server::Handler for DeviceConnection {
 
         self.pty_size_tx = Some(size_tx);
 
-        Ok((self, session))
+        Ok(())
     }
 
     async fn auth_publickey(
-        self,
+        &mut self,
         user: &str,
         public_key: &russh_keys::key::PublicKey,
-    ) -> Result<(Self, Auth)> {
+    ) -> Result<Auth> {
         debug!("got auth_publickey request from user: {}", user);
 
         let given_key = ssh_key::public::PublicKey::from_bytes(&public_key.public_key_bytes())?;
@@ -282,18 +278,15 @@ impl russh::server::Handler for DeviceConnection {
         for key in &self.allowed_public_keys {
             #[allow(clippy::redundant_else)]
             if key.key_data() == given_key.key_data() {
-                return Ok((self, russh::server::Auth::Accept));
+                return Ok(russh::server::Auth::Accept);
             } else {
                 debug!("Wrong key {}", key.fingerprint(HashAlg::Sha256));
             }
         }
 
-        Ok((
-            self,
-            russh::server::Auth::Reject {
-                proceed_with_methods: None,
-            },
-        ))
+        Ok(russh::server::Auth::Reject {
+            proceed_with_methods: None,
+        })
     }
 }
 
@@ -314,7 +307,7 @@ where
             russh_keys::decode_openssh(&keypair.to_bytes()?, None)?
         } else {
             #[allow(clippy::unwrap_used)]
-            let key = russh_keys::key::KeyPair::generate_ed25519().unwrap();
+            let key = russh_keys::key::KeyPair::generate_ed25519();
             let fingerprint = key.clone_public_key()?.fingerprint();
             info!("embedded server private key path not provided, generated one for the session: fingerprint: {}", fingerprint);
             key
