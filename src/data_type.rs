@@ -42,6 +42,8 @@ pub struct DeviceConfig {
     pub validation_poll_timeout: Duration,
     pub session: LocalSession,
     pub unprivileged_user_group: Option<String>,
+    #[serde(skip_serializing, default = "default_enable_dbus_client")]
+    pub enable_dbus_client: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -99,6 +101,7 @@ impl Default for DeviceConfig {
             validation_poll_timeout: default_validation_poll_timeout(),
             session: LocalSession::default(),
             unprivileged_user_group: None,
+            enable_dbus_client: default_enable_dbus_client(),
         }
     }
 }
@@ -127,6 +130,10 @@ fn default_http_timeout() -> Duration {
 
 fn default_local_config_path() -> PathBuf {
     "uptane-repo".into()
+}
+
+fn default_enable_dbus_client() -> bool {
+    false
 }
 
 impl<'de> Deserialize<'de> for RemoteSessionsMetadata {

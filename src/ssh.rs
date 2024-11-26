@@ -30,27 +30,27 @@ pub struct Client {
 impl client::Handler for Client {
     type Error = eyre::Error;
 
-    async fn check_server_key(self, server_public_key: &key::PublicKey) -> Result<(Self, bool)> {
+    async fn check_server_key(&mut self, server_public_key: &key::PublicKey) -> Result<bool> {
         let given_key = ssh_key::PublicKey::from_bytes(&server_public_key.public_key_bytes())?;
 
         if given_key.key_data() == self.server_public_key.key_data() {
             log::info!("Accepting server public key: {}", given_key.to_openssh()?);
-            Ok((self, true))
+            Ok(true)
         } else {
-            Ok((self, false))
+            Ok(false)
         }
     }
 
     #[allow(clippy::similar_names)]
     async fn server_channel_open_forwarded_tcpip(
-        self,
+        &mut self,
         channel: Channel<russh::client::Msg>,
         connected_address: &str,
         connected_port: u32,
         originator_address: &str,
         _originator_port: u32,
-        session: russh::client::Session,
-    ) -> Result<(Self, russh::client::Session)> {
+        _session: &mut russh::client::Session,
+    ) -> Result<()> {
         log::info!(
             "Received connection from {} on {}:{} handling with {:?}",
             originator_address,
@@ -60,12 +60,12 @@ impl client::Handler for Client {
         );
 
         match self.session_type.as_ref() {
-            LocalSession::Embedded(session) => session.handle(&self, channel).await?,
-            LocalSession::TargetHost(session) => session.handle(&self, channel).await?,
-            LocalSession::SpawnedSshd(session) => session.handle(&self, channel).await?,
+            LocalSession::Embedded(session) => session.handle(self, channel).await?,
+            LocalSession::TargetHost(session) => session.handle(self, channel).await?,
+            LocalSession::SpawnedSshd(session) => session.handle(self, channel).await?,
         }
 
-        Ok((self, session))
+        Ok(())
     }
 }
 
@@ -144,11 +144,12 @@ pub async fn start(
         ras_session.reverse_port
     );
 
-    if !session
-        .tcpip_forward("127.0.0.1", ras_session.reverse_port.into())
-        .await?
-    {
-        bail!("could not set tcpi-forward on remote server (-R)")
+    let reverse_port: u32 = ras_session.reverse_port.into();
+
+    let allocated_port = session.tcpip_forward("127.0.0.1", reverse_port).await?;
+
+    if allocated_port != reverse_port {
+        log::info!("Allocated port is not the requested port ({reverse_port})");
     }
 
     Ok(session)
