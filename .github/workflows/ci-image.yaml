@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-ci:a190170
+  IMAGE_NAME: ${{ github.repository }}-ci
 
 jobs:
   build-and-push-image:

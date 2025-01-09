@@ -2,7 +2,7 @@ use serde;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "command", content = "args")]
 pub enum Event {
     PollRasNow(serde_json::Value),

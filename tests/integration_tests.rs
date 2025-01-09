@@ -44,7 +44,6 @@ use tokio::{
     sync::OnceCell,
 };
 use tokio_retry::strategy::FixedInterval;
-use tokio_stream::wrappers::ReceiverStream;
 use tough::{
     schema::{RemoteSessions, RoleKeys, RoleType, Root, Signed},
     sign::Sign,
@@ -110,6 +109,7 @@ impl DirectorState {
 
         let remote_sessions = RemoteSessions {
             remote_sessions: ssh_remote_session,
+            remote_commands: None,
             expires: Utc::now() + chrono::Duration::days(360),
             version: NonZeroU64::new(1).unwrap(),
             _extra: HashMap::new(),
@@ -149,8 +149,8 @@ impl DirectorState {
     }
 
     async fn clear(&self) {
-        let mut remote_sessions = self.remote_sessions.lock().unwrap();
         let new_state = DirectorState::generate(vec![], vec![]).await.unwrap();
+        let mut remote_sessions = self.remote_sessions.lock().unwrap();
         *remote_sessions = new_state.remote_sessions.lock().unwrap().clone();
     }
 }
@@ -427,7 +427,7 @@ async fn full_no_error() {
     let session_rport = session.ssh.reverse_port;
 
     let session_handler = tokio::spawn(async move {
-        let mut dbus_events = futures::stream::pending();
+        let (_tx, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
         rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
@@ -479,7 +479,7 @@ async fn test_director_error() {
         .unwrap();
 
     let session_handler = tokio::spawn(async move {
-        let mut dbus_events = futures::stream::pending();
+        let (_, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
         rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events).await
     });
 
@@ -514,7 +514,7 @@ async fn test_keys_changed() {
         .unwrap();
 
     let session_handler = tokio::spawn(async move {
-        let mut dbus_events = futures::stream::pending();
+        let (_, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
         rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
@@ -557,11 +557,10 @@ async fn test_keys_changed_without_poll() {
         .await
         .unwrap();
 
-    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    let (tx, mut rx) = tokio::sync::broadcast::channel(1);
 
     let session_handler = tokio::spawn(async move {
-        let mut dbus_events = ReceiverStream::new(rx);
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
+        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut rx)
             .await
             .unwrap();
     });
@@ -578,9 +577,7 @@ async fn test_keys_changed_without_poll() {
         session.ssh.authorized_pubkeys.clear();
     }
 
-    tx.send(Event::PollRasNow(serde_json::Value::Null))
-        .await
-        .unwrap();
+    tx.send(Event::PollRasNow(serde_json::Value::Null)).unwrap();
 
     if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
         panic!("session did not end after 5 seconds: {err:?}")
@@ -603,7 +600,7 @@ async fn test_director_changed() {
         .await
         .unwrap();
 
-    let mut dbus_events = futures::stream::pending();
+    let (_, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
 
     let session_handler = tokio::spawn(async move {
         rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
@@ -708,7 +705,7 @@ async fn test_embedded_server() {
         .unwrap();
 
     tokio::spawn(async move {
-        let mut dbus_events = futures::stream::pending();
+        let (_tx, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
         rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
@@ -725,7 +722,7 @@ async fn test_embedded_server() {
         .unwrap();
     let res = ssh.ready().await.unwrap();
 
-    assert!(res)
+    assert!(res);
 }
 
 #[tokio::test]
@@ -740,7 +737,7 @@ async fn test_spawned_sshd() {
     // On CI we run as root, so set user to a normal user and set permissions in config dir
     let user = if std::env::var("CI").ok().unwrap_or_default() == "true" {
         if let Err(err) = std::fs::create_dir("./rac-test") {
-            debug!("could not create config_dir: {}", err)
+            debug!("could not create config_dir: {}", err);
         }
 
         let uid = nix::unistd::User::from_name("ci").unwrap().unwrap().uid;
@@ -771,7 +768,7 @@ async fn test_spawned_sshd() {
         .unwrap();
 
     let _session_handler = tokio::spawn(async move {
-        let mut dbus_events = futures::stream::pending();
+        let (_tx, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
         rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
             .await
             .unwrap();
@@ -792,5 +789,5 @@ async fn test_spawned_sshd() {
 
     let res = ssh.ready().await.unwrap();
 
-    assert!(res)
+    assert!(res);
 }

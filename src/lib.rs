@@ -7,9 +7,11 @@
 #![warn(clippy::print_stdout)]
 #![warn(clippy::print_stderr)]
 
+pub mod command;
 pub mod data_type;
 pub mod dbus;
 pub mod device_keys;
+pub mod event_loop;
 pub mod local_session;
 pub mod torizon;
 
@@ -21,20 +23,20 @@ mod ssh;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use dbus::Event;
 use eyre::bail;
 use eyre::eyre;
 use eyre::Context;
 
-use futures::Stream;
+use futures::FutureExt;
 use russh::client::Handle;
+use serde::Serialize;
 use ssh::Client;
 use tokio::select;
+use tokio::sync::broadcast::Receiver;
 
 use crate::data_type::RacConfig;
 use crate::data_type::*;
 use crate::torizon::*;
-use futures::stream::StreamExt;
 use log::*;
 
 type Result<T> = color_eyre::Result<T>;
@@ -81,15 +83,59 @@ pub fn drop_privileges(config: &RacConfig) -> Result<()> {
     }
 }
 
-pub async fn keep_session_loop<S>(
+pub async fn run_command(rac_cfg: &RacConfig, cmd: &Command) -> Result<CommandResult> {
+    use futures::future::BoxFuture;
+
+    let timeout = rac_cfg.device.commands_timeout;
+
+    let run_command_fut: BoxFuture<'_, Result<std::process::Output>> = match cmd.name.clone() {
+        CommandName::Reboot(action) => action.execute().boxed(),
+        CommandName::RestartService(action) => action.execute(&cmd.args).boxed(),
+        CommandName::Echo(action) => action.execute(&cmd.args).boxed(),
+    };
+
+    let mut output = select! {
+        result = run_command_fut => result?,
+        () = tokio::time::sleep(timeout) => {
+            bail!("command execution timed out after {} seconds", timeout.as_secs())
+        }
+    };
+
+    if !output.status.success() {
+        debug!("output={:?}", &output);
+        warn!("command execute failed");
+    }
+
+    let max_output_len = 1024 * 8 * 100 - "[...]".len(); // 100 Kb max
+
+    if output.stdout.len() > max_output_len {
+        output.stdout.truncate(max_output_len);
+        output.stdout.extend("[...]".as_bytes());
+    }
+
+    if output.stderr.len() > max_output_len {
+        output.stdout.truncate(max_output_len);
+        output.stdout.extend("[...]".as_bytes());
+    }
+
+    let result = CommandResult {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        error: None,
+        exit_code: output.status.code(),
+        finished_at: chrono::Utc::now(),
+    };
+
+    Ok(result)
+}
+
+pub async fn keep_session_loop(
     config: &RacConfig,
     client: &TorizonClient,
     session: &DeviceSession,
-    dbus_events: &mut S,
-) -> Result<()>
-where
-    S: Stream<Item = Event> + Unpin,
-{
+    events: &mut Receiver<dbus::Event>,
+) -> Result<()> {
     let mut session_type = config.device.session.clone();
 
     let mut wait_handle = session_type
@@ -114,6 +160,7 @@ where
         select! {
             () = tokio::time::sleep(validation_poll_timeout) => {
 
+
                 match disconnect_if_session_invalid(client, session, &session_handle).await? {
                     ValidSession::Valid =>
                         continue,
@@ -121,18 +168,16 @@ where
                         break,
                 };
             },
-            event = dbus_events.next() => {
-                debug!("dbus event received while ssh session is active");
-                if let Some(Event::PollRasNow(_)) = event {
-                    debug!("checking session is still valid");
-
-                    match disconnect_if_session_invalid(client, session, &session_handle).await? {
-                        ValidSession::Valid =>
-                            continue,
-                        _invalid =>
-                            break,
-                    };
-                }
+            event = events.recv() => {
+                debug!("dbus event ({:?}) received while ssh session is active", event?);
+                debug!("checking session is still valid");
+                match disconnect_if_session_invalid(client, session, &session_handle).await? {
+                    ValidSession::Valid => {
+                        continue
+                    },
+                    _invalid =>
+                        break,
+                };
             },
             r = &mut wait_handle => {
                 error!("local session handle exited unexpectedly: {r:?}");
@@ -192,7 +237,9 @@ async fn valid_session_metadata(
     torizon_client: &TorizonClient,
     metadata: &SshSession,
 ) -> Result<ValidSession> {
-    let remote_sessions = torizon_client.fetch_verified_remote_sessions().await?;
+    let remote_sessions_role = torizon_client.fetch_verified_remote_sessions().await?;
+    let remote_sessions: RemoteSessionsMetadata =
+        serde_json::from_value(remote_sessions_role.remote_sessions)?;
 
     let mut reasons = Vec::new();
 
@@ -298,6 +345,61 @@ async fn is_session_valid(
     }
 
     valid_session_metadata(torizon_client, new).await
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+enum ValidCommand {
+    Valid,
+    InvalidUptaneMetadata(Vec<String>),
+}
+
+async fn valid_command_metadata<T: UptaneMetadataProvider>(
+    uptane_metadata_provider: &T,
+    metadata: &Command,
+) -> Result<ValidCommand> {
+    let remote_sessions_role = uptane_metadata_provider
+        .fetch_verified_remote_sessions()
+        .await?;
+
+    let mut reasons = Vec::new();
+
+    if remote_sessions_role.remote_commands.is_none() {
+        return Ok(ValidCommand::InvalidUptaneMetadata(vec![
+            "no remote_commands in remote-sessions".into(),
+        ]));
+    }
+
+    #[allow(clippy::unwrap_used)] // is_none() is used
+    let remote_commands: RemoteCommandsPayload =
+        serde_json::from_value(remote_sessions_role.remote_commands.unwrap())?;
+
+    let allowed_parameters = remote_commands.allowed_commands.get(&metadata.name);
+
+    if let Some(allowed_parameters) = allowed_parameters {
+        let allowed_args = &allowed_parameters.args;
+
+        for arg in &metadata.args {
+            if !allowed_args.contains(&CommandArg(arg.into())) {
+                let allowed_args = allowed_args
+                    .iter()
+                    .map(|s| format!("`{}`", s.0))
+                    .collect::<Vec<String>>()
+                    .join(",");
+
+                reasons.push(format!(
+                    "arg `{arg}` not allowed. Allowed arguments are: {allowed_args}"
+                ));
+            }
+        }
+    } else {
+        reasons.push(format!("command is not present in remote-sessions metadata. The command is {:?}, allowed commands are: {:?}", metadata.name,  remote_commands.allowed_commands.keys()));
+    }
+
+    if reasons.is_empty() {
+        Ok(ValidCommand::Valid)
+    } else {
+        Ok(ValidCommand::InvalidUptaneMetadata(reasons))
+    }
 }
 
 #[cfg(test)]
