@@ -1,10 +1,14 @@
 // Copyright 2023 Toradex A.G.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{path::PathBuf, time::Duration};
+use std::{collections::HashMap, fmt::Display, path::PathBuf, time::Duration};
 
-use crate::local_session::*;
+use crate::{
+    command::{EchoAction, RebootAction, RebootServiceAction},
+    local_session::*,
+};
 use chrono::{DateTime, Utc};
+use eyre::OptionExt;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use uuid::Uuid;
@@ -44,6 +48,10 @@ pub struct DeviceConfig {
     pub unprivileged_user_group: Option<String>,
     #[serde(skip_serializing, default = "default_enable_dbus_client")]
     pub enable_dbus_client: bool,
+    #[serde(skip_serializing, default = "default_commands_dir")]
+    pub commands_dir: PathBuf,
+    #[serde(skip_serializing, default = "default_commands_timeout")]
+    pub commands_timeout: Duration,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -64,6 +72,80 @@ pub struct SshSession {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeviceSession {
     pub ssh: SshSession,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CommandResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub error: Option<serde_json::Value>,
+    pub exit_code: Option<i32>,
+    pub finished_at: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CommandsResponse {
+    pub values: HashMap<u32, Command>,
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CommandId(Uuid);
+
+impl CommandId {
+    #[must_use]
+    pub fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl TryFrom<String> for CommandId {
+    type Error = eyre::Report;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let uuid_str = value
+            .strip_prefix("urn:tdx-ota:command:")
+            .ok_or_eyre("urn for CommandId must have the format urn:tdx-ota:<uuid>")?;
+
+        let cmd_id = Uuid::try_from(uuid_str).map(CommandId)?;
+
+        Ok(cmd_id)
+    }
+}
+
+impl From<CommandId> for String {
+    fn from(val: CommandId) -> Self {
+        val.to_string()
+    }
+}
+
+impl Display for CommandId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "urn:tdx-ota:command:{}", self.0)
+    }
+}
+
+impl std::fmt::Debug for CommandId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CommandId(urn:tdx-ota:command:{})", self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandName {
+    Reboot(#[serde(skip)] RebootAction),
+    RestartService(#[serde(skip)] RebootServiceAction),
+    Echo(#[serde(skip)] EchoAction),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Command {
+    pub id: CommandId,
+    pub name: CommandName,
+    pub args: Vec<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -102,6 +184,8 @@ impl Default for DeviceConfig {
             session: LocalSession::default(),
             unprivileged_user_group: None,
             enable_dbus_client: default_enable_dbus_client(),
+            commands_dir: default_commands_dir(),
+            commands_timeout: default_commands_timeout(),
         }
     }
 }
@@ -134,6 +218,14 @@ fn default_local_config_path() -> PathBuf {
 
 fn default_enable_dbus_client() -> bool {
     false
+}
+
+fn default_commands_dir() -> PathBuf {
+    "commands".into()
+}
+
+fn default_commands_timeout() -> Duration {
+    Duration::from_secs(30)
 }
 
 impl<'de> Deserialize<'de> for RemoteSessionsMetadata {
@@ -229,4 +321,17 @@ pub struct RemoteSessionsMetadata {
     pub authorized_keys: Vec<ssh_key::PublicKey>,
     pub ra_server_hosts: Vec<String>,
     pub ra_server_ssh_pubkeys: Vec<ssh_key::PublicKey>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct CommandArg(pub String);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RemoteCommandsPayload {
+    pub allowed_commands: HashMap<CommandName, CommandParameters>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CommandParameters {
+    pub args: Vec<CommandArg>,
 }
