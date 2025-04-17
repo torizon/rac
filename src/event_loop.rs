@@ -1,7 +1,5 @@
 #![allow(clippy::module_name_repetitions)]
 
-use std::any::type_name_of_val;
-
 use crate::data_type::{Command, DeviceSession};
 use crate::dbus::Event;
 use crate::{command::*, CommandResult, UptaneMetadataProvider, ValidCommand};
@@ -29,7 +27,7 @@ where
     tokio::pin!(poll_timer);
 
     loop {
-        debug!("{}: waiting for poll events", type_name_of_val(&ras));
+        debug!("{}: waiting for poll events", std::any::type_name::<T>());
 
         tokio::select! {
             () = &mut poll_timer =>
@@ -39,7 +37,7 @@ where
                     Ok(Event::PollRasNow(_)) =>
                         ras.poll(&rac_cfg, &mut dbus_events).await,
                     Err(err) =>
-                        warn!("{}: could not poll and execute: {err:?}", type_name_of_val(&ras)),
+                        warn!("{}: could not poll and execute: {err:?}", std::any::type_name::<T>()),
                 }
             },
         }
