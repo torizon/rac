@@ -251,7 +251,9 @@ impl EchoAction {
 
         let mut output = Command::new("echo").args(args).output().await?;
 
-        output.stdout = output.stdout.trim_ascii_end().into();
+        let str_output = String::from_utf8_lossy(&output.stdout).to_string();
+
+        output.stdout = str_output.trim_end_matches(|c: char| c.is_whitespace()).into();
 
         Ok(output)
     }
