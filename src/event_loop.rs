@@ -591,9 +591,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_poll_and_run_command_send_pending_results() {
-        //     env_logger::init();
-        // color_eyre::install().unwrap();
-
         let mut ctx = TestContext::new().await;
         let (cmd_id, _) = ctx.create_command();
 

@@ -41,7 +41,7 @@ use crate::Result;
 // at the same time. RAC will write and lock a file to disk and try to
 // prevent a double execution of the command.
 //
-// Every other failure mode related with the execution and persistance
+// Every other failure mode related with the execution and persistence
 // of command results to disk is undefined behavior.
 #[derive(Debug)]
 pub struct CommandStore {
@@ -161,7 +161,7 @@ impl CommandStore {
                 continue;
             }
 
-            let Ok(content) = std::fs::read_to_string(&path) else {
+            let Ok(content) = tokio::fs::read_to_string(&path).await else {
                 debug!("could read {path:?}");
                 continue;
             };
