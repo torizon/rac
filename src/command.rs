@@ -253,7 +253,9 @@ impl EchoAction {
 
         let str_output = String::from_utf8_lossy(&output.stdout).to_string();
 
-        output.stdout = str_output.trim_end_matches(|c: char| c.is_whitespace()).into();
+        output.stdout = str_output
+            .trim_end_matches(|c: char| c.is_whitespace())
+            .into();
 
         Ok(output)
     }

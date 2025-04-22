@@ -461,7 +461,7 @@ async fn validates_remote_sessions_rsa() {
         .unwrap()
         .signed
         .remote_sessions
-        .is_object())
+        .is_object());
 }
 
 #[allow(clippy::unwrap_used)]
@@ -514,5 +514,5 @@ async fn validates_root_unknown_roles() {
     assert_eq!(
         repo.remote_sessions().err().unwrap(),
         "remote-sessions not set in root.json"
-    )
+    );
 }

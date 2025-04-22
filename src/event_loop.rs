@@ -452,7 +452,7 @@ mod tests {
             status: u16,
             result: Option<CommandResult>,
         ) {
-            let path_str = format!("/commands/{}/result", cmd_id);
+            let path_str = format!("/commands/{cmd_id}/result");
 
             let mut mock = Mock::given(method("POST"))
                 .and(path(path_str))
@@ -474,14 +474,14 @@ mod tests {
 
         async fn mock_reset(&self) {
             self.mock_server.verify().await;
-            self.mock_server.reset().await
+            self.mock_server.reset().await;
         }
 
         async fn create_pending_result(&mut self, cmd_id: &CommandId) -> CommandResult {
             let result = CommandResult {
                 success: true,
                 stdout: "test output".to_string(),
-                stderr: "".to_string(),
+                stderr: String::new(),
                 exit_code: Some(0),
                 error: None,
                 finished_at: chrono::Utc::now(),
@@ -511,7 +511,7 @@ mod tests {
         let expect = CommandResult {
             success: true,
             stdout: command.args.join(""),
-            stderr: "".into(),
+            stderr: String::new(),
             exit_code: Some(0),
             error: None,
             finished_at: chrono::Utc::now(),
@@ -547,8 +547,8 @@ mod tests {
 
         let expect = CommandResult {
             success: false,
-            stdout: "".into(),
-            stderr: "".into(),
+            stdout: String::new(),
+            stderr: String::new(),
             error: Some(json!({"message": "invalid command received from server"})), // rest of body will not be matched
             exit_code: None,
             finished_at: chrono::Utc::now(),

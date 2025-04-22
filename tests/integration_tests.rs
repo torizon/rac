@@ -722,7 +722,7 @@ async fn test_embedded_server() {
         .unwrap();
     let res = ssh.ready().await.unwrap();
 
-    assert!(res)
+    assert!(res);
 }
 
 #[tokio::test]
@@ -737,7 +737,7 @@ async fn test_spawned_sshd() {
     // On CI we run as root, so set user to a normal user and set permissions in config dir
     let user = if std::env::var("CI").ok().unwrap_or_default() == "true" {
         if let Err(err) = std::fs::create_dir("./rac-test") {
-            debug!("could not create config_dir: {}", err)
+            debug!("could not create config_dir: {}", err);
         }
 
         let uid = nix::unistd::User::from_name("ci").unwrap().unwrap().uid;
@@ -789,5 +789,5 @@ async fn test_spawned_sshd() {
 
     let res = ssh.ready().await.unwrap();
 
-    assert!(res)
+    assert!(res);
 }
