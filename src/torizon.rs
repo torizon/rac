@@ -1,14 +1,14 @@
 // Copyright 2023 Toradex A.G.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
+use tokio::io::AsyncWriteExt;
+use tough::schema::RemoteSessions;
 
 use crate::data_type::RacConfig;
 use crate::data_type::*;
-use crate::RemoteSessionsMetadata;
 use crate::Result;
 use bytes::Bytes;
 use color_eyre::eyre::{self, Context};
@@ -21,14 +21,22 @@ use futures::StreamExt;
 use log::*;
 use reqwest::header::HeaderValue;
 use reqwest::StatusCode;
+use serde::Deserialize;
+use serde::Serialize;
 use tokio::io::AsyncReadExt;
 use url::Url;
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub struct TorizonClient {
-    http_client: reqwest::Client,
-    config: RacConfig,
+    pub(crate) http_client: reqwest::Client,
+    pub(crate) config: RacConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RasError {
+    code: String,
+    description: String,
 }
 
 impl TorizonClient {
@@ -85,6 +93,61 @@ impl TorizonClient {
         Ok(Some(payload))
     }
 
+    pub async fn get_commands(&self) -> Result<CommandsResponse> {
+        let url = self.config.torizon.url.join("commands")?;
+        let req = self.http_client.request(reqwest::Method::GET, url);
+        let response = req.send().await?;
+
+        if !response.status().is_success() {
+            bail!("Could not get device remote commands: {:?}", response);
+        }
+
+        let payload = response.json::<CommandsResponse>().await?;
+
+        Ok(payload)
+    }
+
+    pub async fn send_command_result(
+        &self,
+        cmd_id: &CommandId,
+        result: &CommandResult,
+    ) -> Result<()> {
+        let url = self
+            .config
+            .torizon
+            .url
+            .join(&format!("commands/{cmd_id}/result"))?;
+        let req = self
+            .http_client
+            .request(reqwest::Method::POST, url)
+            .json(result);
+        let response = req.send().await?;
+
+        if !response.status().is_success() {
+            if response.status() == StatusCode::BAD_REQUEST {
+                let response_body = response.text().await.unwrap_or_default();
+
+                if let Ok(ras_err) = serde_json::from_str::<RasError>(&response_body) {
+                    if ras_err.code == "command_not_found" {
+                        debug!(
+                            "command {} not found in server. report already sent?",
+                            cmd_id
+                        );
+                        return Ok(());
+                    }
+                    bail!("RAS error: {}", ras_err.description);
+                } else {
+                    bail!("Invalid BAD_REQUEST response: {}", response_body);
+                }
+            }
+
+            let text = response.text().await.unwrap_or_default();
+            bail!("Could not send command result: {}", text);
+        }
+
+        Ok(())
+    }
+
     pub async fn fetch_latest_root(&self) -> Result<Bytes> {
         let url = self.director_url().join("root.json")?;
 
@@ -100,21 +163,7 @@ impl TorizonClient {
         Ok(payload)
     }
 
-    pub async fn fetch_verified_remote_sessions(&self) -> Result<RemoteSessionsMetadata> {
-        let loader = UptaneRepositoryLoader::new(
-            self.clone(),
-            self.http_client.clone(),
-            self.director_url(),
-            self.config.device.local_tuf_repo_path.clone(),
-        );
-
-        let remote_sessions_json = loader.load_remote_sessions().await?;
-        let remote_sessions = serde_json::from_value(remote_sessions_json)?;
-
-        Ok(remote_sessions)
-    }
-
-    fn director_url(&self) -> Url {
+    pub(crate) fn director_url(&self) -> Url {
         self.config.torizon.director_url.clone().unwrap_or({
             let mut url = self.config.torizon.url.clone();
             url.set_path("/director/");
@@ -151,6 +200,15 @@ pub fn tls_http_client(config: &RacConfig) -> Result<reqwest::Client> {
     cb = cb.identity(identity);
     cb = cb.user_agent(user_agent());
     cb = cb.timeout(config.torizon.http_timeout);
+
+    if let Some(ns) = config.torizon.namespace {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-ats-namespace",
+            reqwest::header::HeaderValue::from_str(&ns.to_string())?,
+        );
+        cb = cb.default_headers(headers);
+    }
 
     Ok(cb.build()?)
 }
@@ -308,9 +366,12 @@ impl UptaneRepositoryLoader {
                 trace!("Error when reading root.json: {err:?}");
                 let fetched_root = torizon_client.fetch_latest_root().await?;
 
-                if let Err(err) =
-                    std::fs::File::create(&local_root).and_then(|mut f| f.write_all(&fetched_root))
-                {
+                let res = async {
+                    let mut f = tokio::fs::File::create(&local_root).await?;
+                    f.write_all(&fetched_root).await
+                };
+
+                if let Err(err) = res.await {
                     warn!("could not save latest root to local cache: {}", err);
                 } else {
                     info!("saved trusted root to {}", &local_root.to_string_lossy());
@@ -323,7 +384,7 @@ impl UptaneRepositoryLoader {
         Ok(r)
     }
 
-    pub async fn load_remote_sessions(&self) -> Result<serde_json::Value> {
+    pub async fn load_remote_sessions(&self) -> Result<RemoteSessions> {
         let trusted_root =
             Self::load_trusted_root(&self.local_repo_path, &self.torizon_client).await?;
 
@@ -343,8 +404,27 @@ impl UptaneRepositoryLoader {
             .remote_sessions()
             .map_err(|err| eyre!("could not get remote-sessions: {}", err))?
             .signed
-            .remote_sessions
             .clone();
+
+        Ok(remote_sessions)
+    }
+}
+
+pub trait UptaneMetadataProvider: std::fmt::Debug {
+    #[allow(async_fn_in_trait)]
+    async fn fetch_verified_remote_sessions(&self) -> Result<RemoteSessions>;
+}
+
+impl UptaneMetadataProvider for TorizonClient {
+    async fn fetch_verified_remote_sessions(&self) -> Result<RemoteSessions> {
+        let loader = crate::UptaneRepositoryLoader::new(
+            self.clone(),
+            self.http_client.clone(),
+            self.director_url(),
+            self.config.device.local_tuf_repo_path.clone(),
+        );
+
+        let remote_sessions = loader.load_remote_sessions().await?;
 
         Ok(remote_sessions)
     }
@@ -381,7 +461,7 @@ async fn validates_remote_sessions_rsa() {
         .unwrap()
         .signed
         .remote_sessions
-        .is_object())
+        .is_object());
 }
 
 #[allow(clippy::unwrap_used)]
@@ -434,5 +514,5 @@ async fn validates_root_unknown_roles() {
     assert_eq!(
         repo.remote_sessions().err().unwrap(),
         "remote-sessions not set in root.json"
-    )
+    );
 }

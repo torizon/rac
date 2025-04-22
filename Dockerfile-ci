@@ -1,4 +1,5 @@
-FROM rust:1.79-slim-bullseye as builder
+# This needs to be in sync with the rust-toolchain file
+FROM rust:1.75-slim-bullseye as builder
 
 ADD https://musl.cc/aarch64-linux-musl-cross.tgz .
 
@@ -12,7 +13,8 @@ RUN sha256sum arm-linux-musleabihf-cross.tgz | grep -q 11e155a090789c854afb5d91e
     mkdir /opt/arm-linux-musleabihf-cross && \
     tar xvf arm-linux-musleabihf-cross.tgz --strip-component=1 -C /opt/arm-linux-musleabihf-cross
 
-FROM rust:1.79-slim-bullseye
+# This needs to be in sync with the rust-toolchain file
+From rust:1.75-slim-bullseye
 
 RUN apt-get update && apt-get --yes install curl git bash sudo musl-tools openssh-server
 
