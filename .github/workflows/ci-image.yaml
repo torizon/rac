@@ -1,10 +1,11 @@
 name: Build and publish ci container
 
 on:
-  push:
-    branches: ['*']
-    paths:
-      - Dockerfile-ci
+  # Disabled due to rate limiting on http://musl.cc
+  # push:
+  #   branches: ['*']
+  #   paths:
+  #     - Dockerfile-ci
   workflow_dispatch:
 
 env:

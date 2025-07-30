@@ -9,6 +9,10 @@ valid and the public keys are still authorized.
 
 RAC will try to recover from errors and reconnect.
 
+## CI Docker Image
+
+The CI jobs for this app run on Github Actions, which is currently blocked by `musl.cc`. Therefore, we currently do not build the docker image for CI, on CI. If you change the `Dockerfile-ci` file, you will need to manually build and push the new image to docker and update the image reference in the github actions yaml definitions.
+
 ## Usage
 
 Compile with `cargo build --release`, or to cross compile to arm: `cargo build --target aarch64-unknown-linux-musl --release`. You will need the arm musl linker installed. 
