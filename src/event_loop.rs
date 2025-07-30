@@ -64,7 +64,7 @@ impl<V: UptaneMetadataProvider> CommandPolling<V> {
         ras_client: &TorizonClient,
         metadata_provider: &V,
     ) -> Result<Option<Command>, eyre::Report> {
-        let mut commands = ras_client
+        let commands = ras_client
             .get_commands()
             .await
             .wrap_err("Could not get session data from server")?
@@ -72,10 +72,8 @@ impl<V: UptaneMetadataProvider> CommandPolling<V> {
 
         debug!("commands received: {commands:?}");
 
-        let min_key = commands.keys().min().copied();
-
         // Only return the lowest priority command
-        let cmd_opt = min_key.and_then(|k| commands.remove(&k));
+        let cmd_opt = commands.first().cloned();
 
         // validate RAS command against uptane metadata
         if let Some(cmd) = cmd_opt {
@@ -437,7 +435,7 @@ mod tests {
             (cmd_id, command)
         }
 
-        async fn mock_get_commands(&self, commands: HashMap<u32, Command>) {
+        async fn mock_get_commands(&self, commands: Vec<Command>) {
             let response = CommandsResponse { values: commands };
 
             Mock::given(method("GET"))
@@ -519,7 +517,7 @@ mod tests {
             finished_at: chrono::Utc::now(),
         };
 
-        ctx.mock_get_commands(HashMap::from([(0, command)])).await;
+        ctx.mock_get_commands(vec![command]).await;
 
         ctx.mock_post_command_result(&cmd_id, 200, Some(expect))
             .await;
@@ -556,7 +554,7 @@ mod tests {
             finished_at: chrono::Utc::now(),
         };
 
-        ctx.mock_get_commands(HashMap::from([(0, command)])).await;
+        ctx.mock_get_commands(vec![command]).await;
 
         ctx.mock_post_command_result(&cmd_id, 200, Some(expect))
             .await;
@@ -576,7 +574,7 @@ mod tests {
     async fn test_poll_and_run_command_no_commands() {
         let mut ctx = TestContext::new().await;
 
-        ctx.mock_get_commands(HashMap::new()).await;
+        ctx.mock_get_commands(vec![]).await;
 
         ctx.polling.poll(&ctx.rac_cfg, &mut ctx.dbus_events).await;
 
@@ -596,7 +594,7 @@ mod tests {
 
         let result = ctx.create_pending_result(&cmd_id).await;
 
-        ctx.mock_get_commands(HashMap::new()).await;
+        ctx.mock_get_commands(vec![]).await;
 
         ctx.mock_post_command_result(&cmd_id, 200, Some(result))
             .await;
@@ -618,7 +616,7 @@ mod tests {
         let mut ctx = TestContext::new().await;
         let (cmd_id, command) = ctx.create_command();
 
-        ctx.mock_get_commands(HashMap::from([(0, command)])).await;
+        ctx.mock_get_commands(vec![command]).await;
 
         ctx.mock_post_command_result(&cmd_id, 500, None).await;
 
@@ -642,7 +640,7 @@ mod tests {
         let mut ctx = TestContext::new().await;
         let (cmd_id, command) = ctx.create_command();
 
-        ctx.mock_get_commands(HashMap::from([(0, command)])).await;
+        ctx.mock_get_commands(vec![command]).await;
 
         ctx.mock_post_command_result(&cmd_id, 500, None).await;
 
@@ -662,7 +660,7 @@ mod tests {
 
         ctx.mock_reset().await;
 
-        ctx.mock_get_commands(HashMap::new()).await;
+        ctx.mock_get_commands(vec![]).await;
 
         let result = pending_commands[0].1.clone();
         ctx.mock_post_command_result(&cmd_id, 200, Some(result.clone()))
@@ -688,8 +686,7 @@ mod tests {
         let mut ctx = TestContext::new().await;
         let (cmd_id, command) = ctx.create_command();
 
-        ctx.mock_get_commands(HashMap::from([(0, command.clone())]))
-            .await;
+        ctx.mock_get_commands(vec![command.clone()]).await;
         ctx.mock_post_command_result(&cmd_id, 500, None).await;
         ctx.polling.poll(&ctx.rac_cfg, &mut ctx.dbus_events).await;
 
@@ -706,7 +703,7 @@ mod tests {
 
         // Second poll - server returns the same command again
         // But we should only try to send the pending result, not execute the command again
-        ctx.mock_get_commands(HashMap::from([(0, command)])).await;
+        ctx.mock_get_commands(vec![command]).await;
 
         // should only be called once, for pending result, not for a new execution
         ctx.mock_post_command_result(&cmd_id, 500, Some(pending_result))
