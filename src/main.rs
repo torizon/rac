@@ -4,27 +4,22 @@
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::wildcard_imports)]
+#![allow(clippy::module_name_repetitions)]
 #![warn(clippy::print_stdout)]
 #![warn(clippy::print_stderr)]
 
 use std::path::Path;
-use std::sync::Arc;
 
-use chrono::Utc;
 use config::Config;
-use eyre::Context;
-use futures::stream::StreamExt;
-use futures::FutureExt;
-use futures::{future, Stream};
 use log::*;
-use rac::data_type::DeviceSession;
 use rac::dbus::Event;
-use rac::{data_type::RacConfig, dbus, device_keys};
+use rac::event_loop::*;
+use rac::{data_type::RacConfig, device_keys};
 use rac::{
     drop_privileges,
     torizon::{self, *},
 };
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::sync::broadcast::{self};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -104,92 +99,25 @@ async fn main() {
         );
     }
 
-    let mut dbus_events = start_dbus_channel(&rac_cfg);
+    let (tx, rx) = broadcast::channel::<Event>(8);
 
-    let ras_client = Arc::new(ras_client);
+    let dbus_loop_handle = tokio::spawn(start_dbus_loop(rac_cfg.clone(), tx));
 
-    poll_and_start_session(&ras_client, &rac_cfg, &mut dbus_events).await;
+    let ssh_loop_handle = tokio::spawn(start_ssh_event_loop(
+        rx.resubscribe(),
+        rac_cfg.clone(),
+        ras_client.clone(),
+    ));
 
-    let poll_timer = tokio::time::sleep(rac_cfg.device.poll_timeout);
-    tokio::pin!(poll_timer);
+    let remote_commands_handle =
+        tokio::spawn(start_remote_commands_event_loop(ras_client, rac_cfg, rx));
 
-    loop {
-        debug!("waiting for new sessions for this device");
-
-        tokio::select! {
-            () = &mut poll_timer =>
-                poll_and_start_session(&ras_client, &rac_cfg, &mut dbus_events).await,
-            event = dbus_events.next() => {
-                if let Some(Event::PollRasNow(_)) = event {
-                    poll_and_start_session(&ras_client, &rac_cfg, &mut dbus_events).await;
-                } else {
-                    debug!("event received via dbus, no session active: {:?}", event);
-                    continue; // do not reset timer
-                }
-            },
-        }
-
-        poll_timer
-            .as_mut()
-            .reset(tokio::time::Instant::now() + rac_cfg.device.poll_timeout);
+    tokio::select! {
+        cause = dbus_loop_handle =>
+            error!("dbus loop quit unexpectedly: {:?}", cause),
+        cause = ssh_loop_handle =>
+            error!("ssh loop quit unexpectedly: {:?}", cause),
+        cause = remote_commands_handle =>
+            error!("remote commands loop quit unexpectedly: {:?}", cause),
     }
-}
-
-async fn poll_and_start_session<S>(
-    ras_client: &TorizonClient,
-    rac_cfg: &RacConfig,
-    dbus_events: &mut S,
-) where
-    S: Stream<Item = Event> + Unpin,
-{
-    match poll_for_new_sessions(ras_client).await {
-        Ok(Some(session)) => {
-            if let Err(err) =
-                rac::keep_session_loop(rac_cfg, ras_client, &session, dbus_events).await
-            {
-                error!("error in ssh session loop: {:?}", err);
-            } else {
-                info!("ssh session closed");
-            }
-        }
-        Ok(None) => info!("no sessions available in RAS"),
-        Err(err) => error!("could not get sessions, trying later {err:?}"),
-    }
-}
-
-fn start_dbus_channel(rac_cfg: &RacConfig) -> Box<dyn Stream<Item = dbus::Event> + Unpin> {
-    if rac_cfg.device.enable_dbus_client {
-        let rx = dbus::client::start();
-        info!("subscribed to dbus signals");
-        Box::new(ReceiverStream::new(rx))
-    } else {
-        info!("dbus client disabled");
-        Box::new(future::pending().into_stream())
-    }
-}
-
-async fn poll_for_new_sessions(
-    ras_client: &TorizonClient,
-) -> Result<Option<DeviceSession>, eyre::Report> {
-    let session = ras_client
-        .get_session()
-        .await
-        .wrap_err("Could not get session data from server")?;
-
-    let session = match session {
-        None => {
-            debug!("No sessions available for this device");
-            return Ok(None);
-        }
-        Some(s) => s,
-    };
-
-    debug!("{session:?}");
-    info!("Received new session");
-
-    if Utc::now() > session.ssh.expires_at {
-        warn!("session expired at {}", session.ssh.expires_at);
-    }
-
-    Ok(Some(session))
 }

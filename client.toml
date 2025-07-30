@@ -8,7 +8,7 @@ client_key_path = "device-files/dev/pkey.pem"
 # If this file does not exist, a new key will be generated and saved to this file
 ssh_private_key_path = "./device-key-01.sec"
 # unprivileged_user_group = "simao:simao"
-poll_timeout = { secs = 60, nanos = 0 }
+poll_timeout = { secs = 4, nanos = 0 }
 validation_poll_timeout = { secs = 60, nanos = 0 }
 
 # [device.session.target_host]

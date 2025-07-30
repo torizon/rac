@@ -179,7 +179,7 @@ impl SessionLifecycle for SpawnedSshdSession {
 
         self.used_port = Some(port);
 
-        let f = handle.map(|status| Ok(warn!("spawned_sshd exited with {status:?}")));
+        let f = handle.map(|status| Ok(() = warn!("spawned_sshd exited with {status:?}")));
 
         return Ok(f.boxed());
     }
