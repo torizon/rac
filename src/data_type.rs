@@ -86,7 +86,7 @@ pub struct CommandResult {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommandsResponse {
-    pub values: HashMap<u32, Command>,
+    pub values: Vec<Command>,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq, Deserialize, Serialize)]
