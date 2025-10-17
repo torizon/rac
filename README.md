@@ -13,9 +13,27 @@ RAC will try to recover from errors and reconnect.
 
 The CI jobs for this app run on Github Actions, which is currently blocked by `musl.cc`. Therefore, we currently do not build the docker image for CI, on CI. If you change the `Dockerfile-ci` file, you will need to manually build and push the new image to docker and update the image reference in the github actions yaml definitions.
 
-## Usage
+## Compiling
 
-Compile with `cargo build --release`, or to cross compile to arm: `cargo build --target aarch64-unknown-linux-musl --release`. You will need the arm musl linker installed. 
+### On Any Platform
+
+Compile with `cargo build --release`, or to cross compile to arm: `cargo build --target aarch64-unknown-linux-musl --release`. You will need the arm musl linker installed.
+
+### On Darwin with Apple Silicon
+To compile on Darwin with Apple Silicon, after adding the desired rust target as above:
+
+1. Install a cross-compiler from `brew tap messense/macos-cross-toolchains` for example, for x86_64 (note that this toolchain is not maintained by Toradex) and `brew install x86_64-unknown-linux-musl`.
+
+2. Tell cargo where to find the compiler and linker
+```
+export CC_x86_64_unknown_linux_musl="$(brew --prefix)/opt/x86_64-unknown-linux-musl/bin/x86_64-unknown-linux-musl-gcc"
+export AR_x86_64_unknown_linux_musl="$(brew --prefix)/opt/x86_64-unknown-linux-musl/bin/x86_64-unknown-linux-musl-ar"
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="$CC_x86_64_unknown_linux_musl"
+```
+
+3. Build `cargo build --target x86_64-unknown-linux-musl --release`.
+
+## Usage
 
 1. Edit client.toml
    

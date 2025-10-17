@@ -119,4 +119,33 @@ jobs:
           name: rac-aarch64
           path: target/aarch64-unknown-linux-musl/release/rac
 
+  build-amd64:
+    name: Build AMD64
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/${{ github.repository }}-ci:df116b0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: tzn-rac-amd64-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            tzn-rac-amd64
+      - run: git config --global --add safe.directory $PWD
+      - run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Archive binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: rac-amd64
+          path: target/x86_64-unknown-linux-musl/release/rac
+
 # TODO Write release step so we can reuse binaries from previous steps to create release
