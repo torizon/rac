@@ -263,8 +263,8 @@ pub async fn start_ssh_event_loop(
 }
 
 fn start_dbus_channel(rac_cfg: &RacConfig) -> Box<dyn Stream<Item = dbus::Event> + Send + Unpin> {
-    if rac_cfg.device.enable_dbus_client {
-        let rx = dbus::client::start();
+    if rac_cfg.device.enable_dbus_server {
+        let rx = dbus::server::start();
         info!("subscribed to dbus signals");
         Box::new(ReceiverStream::new(rx))
     } else {

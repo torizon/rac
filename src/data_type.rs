@@ -46,8 +46,8 @@ pub struct DeviceConfig {
     pub validation_poll_timeout: Duration,
     pub session: LocalSession,
     pub unprivileged_user_group: Option<String>,
-    #[serde(skip_serializing, default = "default_enable_dbus_client")]
-    pub enable_dbus_client: bool,
+    #[serde(skip_serializing, default = "default_enable_dbus_server")]
+    pub enable_dbus_server: bool,
     #[serde(skip_serializing, default = "default_commands_dir")]
     pub commands_dir: PathBuf,
     #[serde(skip_serializing, default = "default_commands_timeout")]
@@ -183,7 +183,7 @@ impl Default for DeviceConfig {
             validation_poll_timeout: default_validation_poll_timeout(),
             session: LocalSession::default(),
             unprivileged_user_group: None,
-            enable_dbus_client: default_enable_dbus_client(),
+            enable_dbus_server: default_enable_dbus_server(),
             commands_dir: default_commands_dir(),
             commands_timeout: default_commands_timeout(),
         }
@@ -216,7 +216,7 @@ fn default_local_config_path() -> PathBuf {
     "uptane-repo".into()
 }
 
-fn default_enable_dbus_client() -> bool {
+fn default_enable_dbus_server() -> bool {
     false
 }
 
