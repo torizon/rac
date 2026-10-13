@@ -8,56 +8,57 @@ pub enum Event {
     PollRasNow(serde_json::Value),
 }
 
-pub mod client {
-    use futures::stream::StreamExt;
+pub mod server {
     use log::*;
-    use serde_json::json;
-    use std::{fmt::Debug, time::Duration};
+    use std::time::Duration;
     use tokio::sync::mpsc::{self, Sender};
-    use zbus::{proxy, Connection};
+    use zbus::conn::Builder;
 
     use super::Event;
 
-    #[proxy(
-        interface = "io.torizon.TznService1",
-        default_service = "io.torizon.TznService",
-        default_path = "/io/torizon/TznService"
-    )]
-    trait TznService {
-        #[zbus(signal)]
-        async fn tzn_message_sig(command: &str, arg_json: &str) -> zbus::Result<()>;
+    struct TznRac {
+        ch: Sender<Event>,
     }
 
-    fn handle_event(msg: &TznMessageSig, ch: &Sender<Event>) -> crate::Result<()> {
-        let args: TznMessageSigArgs = msg.args()?;
-        let json_args: serde_json::Value = serde_json::from_str(args.arg_json)?;
+    #[zbus::interface(name = "io.torizon.Rac1")]
+    impl TznRac {
+        async fn poll_ras_now(&self, args_json: &str) -> zbus::fdo::Result<()> {
+            let json_args: serde_json::Value = serde_json::from_str(args_json).map_err(|err| {
+                zbus::fdo::Error::InvalidArgs(format!("invalid args json: {}", err))
+            })?;
 
-        debug!(
-            "received signal in dbus. command={} args={:?}",
-            args.command, json_args
-        );
+            debug!("received poll_ras_now in dbus. args={:?}", json_args);
 
-        let full_json = json!({
-            "command": args.command,
-            "args": json_args,
-        });
+            let event = Event::PollRasNow(json_args);
 
-        let event: Event = serde_json::from_value(full_json)?;
+            if let Err(err) = self.ch.try_send(event) {
+                warn!("could not send msg to main event loop: {:?}", err);
+            }
 
-        ch.try_send(event)
-            .map_err(|err| eyre::eyre!("could not send msg: {:?}", err))?;
-
-        Ok(())
+            Ok(())
+        }
     }
 
-    async fn dbus_connect() -> crate::Result<TznMessageSigStream<'static>> {
-        let connection = Connection::session().await?;
+    async fn dbus_start_server(ch: Sender<Event>) -> crate::Result<()> {
+        // two step dbus init required because zbus 4 has a bug: if
+        // requesting the name fails inside Builder::build() (e.g.
+        // AccessDenied by the bus policy), the connection is leaked and
+        // retrying eventually exhausts max_connections_per_user. Fixed
+        // in zbus 5, but 5 requires a rustc upgrade, which we cannot do
+        // because the yocto build pins rustc 1.75.
+        //
+        // The name is still requested only after build() returns, so the
+        // interface is registered and the object server is listening
+        // before any client can reach us through the well-known name.
 
-        let dbus_proxy = TznServiceProxy::new(&connection).await?;
+        let conn = Builder::system()?
+            .serve_at("/io/torizon/Rac1", TznRac { ch })?
+            .build()
+            .await?;
 
-        let events = dbus_proxy.receive_tzn_message_sig().await?;
+        conn.request_name("io.torizon.Rac1").await?;
 
-        Ok(events)
+        Ok(std::future::pending::<()>().await)
     }
 
     #[must_use]
@@ -66,20 +67,14 @@ pub mod client {
 
         tokio::task::spawn(async move {
             loop {
-                match dbus_connect().await {
-                    Ok(mut events) => {
-                        while let Some(msg) = events.next().await {
-                            if let Err(err) = handle_event(&msg, &tx) {
-                                info!("could not handle {:?}: {:?}", msg, err);
-                            }
-                        }
-
-                        error!("event stream/dbus finished unexpectedly");
+                match dbus_start_server(tx.clone()).await {
+                    Ok(_) => {
+                        error!("dbus server finished unexpectedly");
                     }
                     Err(err) => warn!("could not connect to dbus: {:?}", err),
                 }
 
-                tokio::time::sleep(Duration::from_secs(3)).await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
             }
         });
 
