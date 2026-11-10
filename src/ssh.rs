@@ -4,6 +4,7 @@
 use crate::data_type::RacConfig;
 use crate::data_type::*;
 use crate::local_session::{EmbeddedSession, SessionLifecycle};
+use crate::torizon::TorizonClient;
 use async_trait::async_trait;
 use color_eyre::{eyre, eyre::bail};
 use russh::client::Config;
@@ -15,6 +16,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use uuid::Uuid;
+
+use crate::data_type::DeviceSession;
+use crate::Event;
+use chrono::Utc;
+use eyre::Context;
+use log::*;
+use tokio::sync::broadcast::Sender;
+use tokio::task::JoinHandle;
 
 use crate::Result;
 
@@ -153,4 +162,101 @@ pub async fn start(
     }
 
     Ok(session)
+}
+
+
+#[derive(Debug)]
+pub struct SshPolling {
+    ras_client: TorizonClient,
+    rac_cfg: RacConfig,
+    handler: Option<JoinHandle<crate::Result<()>>>,
+    handler_ch: Option<Sender<Event>>,
+}
+
+impl SshPolling {
+    pub fn new(ras_client: TorizonClient, ras_cfg: RacConfig) -> Self {
+        Self {
+            ras_client,
+            rac_cfg: ras_cfg,
+            handler: None,
+            handler_ch: None,
+        }
+    }
+
+    async fn poll_for_new_sessions(&self) -> Result<Option<DeviceSession>> {
+        let session = self
+            .ras_client
+            .get_session()
+            .await
+            .wrap_err("Could not get session data from server")?;
+
+        let session = match session {
+            None => {
+                debug!("No sessions available for this device");
+                return Ok(None);
+            }
+            Some(s) => s,
+        };
+
+        debug!("{session:?}");
+        info!("Received new session");
+
+        if Utc::now() > session.ssh.expires_at {
+            warn!("session expired at {}", session.ssh.expires_at);
+        }
+
+        Ok(Some(session))
+    }
+
+    pub async fn forward(&mut self, event: Event) -> crate::Result<()> {
+        if self.handler.is_some() {
+            if let Some(rx) = &self.handler_ch {
+                rx.send(event)?;
+            } else {
+                debug!("error, there is a handler but no channel, this should not happen");
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn poll(&mut self) {
+        if let Some(h) = &mut self.handler {
+            if h.is_finished() {
+                match h.await {
+                    Ok(Ok(_)) => {
+                        debug!("ssh session loop finished");
+                    },
+                    Ok(Err(err)) => {
+                        error!("error in ssh loop: {err:?}");
+                    },
+                    Err(err) =>
+                        warn!("error in ssh session loop: {:?}", err),
+                }
+                self.handler = None;
+                self.handler_ch = None;
+            } else {
+                info!("in ssh session loop, ignoring poll");
+                return;
+            }
+        }
+
+        match self.poll_for_new_sessions().await {
+            Ok(Some(session)) => {
+                let (loop_ch_tx, loop_ch_rx) = tokio::sync::broadcast::channel::<Event>(1);
+
+                let handler = tokio::spawn(crate::keep_session_loop(
+                    self.rac_cfg.clone(),
+                    self.ras_client.clone(),
+                    session,
+                    loop_ch_rx,
+                ));
+
+                self.handler = Some(handler);
+                self.handler_ch = Some(loop_ch_tx);
+            }
+            Ok(None) => info!("no sessions available in RAS"),
+            Err(err) => error!("could not get sessions, trying later {err:?}"),
+        }
+    }
 }

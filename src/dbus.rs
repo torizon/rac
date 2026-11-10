@@ -1,20 +1,10 @@
-use serde;
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "command", content = "args")]
-pub enum Event {
-    PollRasNow(serde_json::Value),
-}
-
 pub mod server {
     use log::*;
     use std::time::Duration;
     use tokio::sync::mpsc::{self, Sender};
     use zbus::conn::Builder;
 
-    use super::Event;
+    use crate::Event;
 
     struct TznRac {
         ch: Sender<Event>,
@@ -29,7 +19,7 @@ pub mod server {
 
             debug!("received poll_ras_now in dbus. args={:?}", json_args);
 
-            let event = Event::PollRasNow(json_args);
+            let event = Event::DbusPollRasNow(json_args);
 
             if let Err(err) = self.ch.try_send(event) {
                 warn!("could not send msg to main event loop: {:?}", err);
@@ -58,7 +48,8 @@ pub mod server {
 
         conn.request_name("io.torizon.Rac1").await?;
 
-        Ok(std::future::pending::<()>().await)
+        std::future::pending::<()>().await;
+        Ok(())
     }
 
     #[must_use]

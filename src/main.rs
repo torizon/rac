@@ -12,8 +12,8 @@ use std::path::Path;
 
 use config::Config;
 use log::*;
-use rac::dbus::Event;
 use rac::event_loop::*;
+use rac::Event;
 use rac::{data_type::RacConfig, device_keys};
 use rac::{
     drop_privileges,
@@ -99,25 +99,18 @@ async fn main() {
         );
     }
 
-    let (tx, rx) = broadcast::channel::<Event>(8);
+    let (dbus_ch_tx, dbus_ch_rx) = broadcast::channel::<Event>(8);
 
-    let dbus_loop_handle = tokio::spawn(start_dbus_loop(rac_cfg.clone(), tx));
+    let dbus_loop_handle = tokio::spawn(start_dbus_loop(rac_cfg.clone(), dbus_ch_tx));
 
-    let ssh_loop_handle = tokio::spawn(start_ssh_event_loop(
-        rx.resubscribe(),
-        rac_cfg.clone(),
-        ras_client.clone(),
-    ));
+    let poll_loop_handle = tokio::spawn(start_poll_loop(ras_client, rac_cfg, dbus_ch_rx));
 
-    let remote_commands_handle =
-        tokio::spawn(start_remote_commands_event_loop(ras_client, rac_cfg, rx));
-
+    // wait for errors in loop
     tokio::select! {
         cause = dbus_loop_handle =>
             error!("dbus loop quit unexpectedly: {:?}", cause),
-        cause = ssh_loop_handle =>
-            error!("ssh loop quit unexpectedly: {:?}", cause),
-        cause = remote_commands_handle =>
-            error!("remote commands loop quit unexpectedly: {:?}", cause),
+        cause = poll_loop_handle =>
+            error!("poll timer loop quit unexpectedly: {:?}", cause),
+
     }
 }
