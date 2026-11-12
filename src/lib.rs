@@ -32,6 +32,7 @@ use russh::client::Handle;
 use serde::Serialize;
 use ssh::Client;
 use tokio::select;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::Receiver;
 
 use crate::data_type::RacConfig;
@@ -40,6 +41,11 @@ use crate::torizon::*;
 use log::*;
 
 type Result<T> = color_eyre::Result<T>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Event {
+    DbusPollRasNow(serde_json::Value),
+}
 
 #[allow(clippy::similar_names)]
 pub fn drop_privileges(config: &RacConfig) -> Result<()> {
@@ -106,7 +112,7 @@ pub async fn run_command(rac_cfg: &RacConfig, cmd: &Command) -> Result<CommandRe
         warn!("command execute failed");
     }
 
-    let max_output_len = 1024 * 8 * 100 - "[...]".len(); // 100 Kb max
+    let max_output_len = 1024 * 8 * 100 - "[...]".len(); // 800 Kb max
 
     if output.stdout.len() > max_output_len {
         output.stdout.truncate(max_output_len);
@@ -114,8 +120,8 @@ pub async fn run_command(rac_cfg: &RacConfig, cmd: &Command) -> Result<CommandRe
     }
 
     if output.stderr.len() > max_output_len {
-        output.stdout.truncate(max_output_len);
-        output.stdout.extend("[...]".as_bytes());
+        output.stderr.truncate(max_output_len);
+        output.stderr.extend("[...]".as_bytes());
     }
 
     let result = CommandResult {
@@ -131,10 +137,10 @@ pub async fn run_command(rac_cfg: &RacConfig, cmd: &Command) -> Result<CommandRe
 }
 
 pub async fn keep_session_loop(
-    config: &RacConfig,
-    client: &TorizonClient,
-    session: &DeviceSession,
-    events: &mut Receiver<dbus::Event>,
+    config: RacConfig,
+    client: TorizonClient,
+    session: DeviceSession,
+    mut events: Receiver<Event>,
 ) -> Result<()> {
     let mut session_type = config.device.session.clone();
 
@@ -143,7 +149,7 @@ pub async fn keep_session_loop(
         .await
         .wrap_err("starting local session handle")?;
 
-    let session_valid = valid_session_metadata(client, &session.ssh).await?;
+    let session_valid = valid_session_metadata(&client, &session.ssh).await?;
     if session_valid != ValidSession::Valid {
         debug!("session from server is invalid: {:#?}", &session.ssh);
         error!(
@@ -153,15 +159,18 @@ pub async fn keep_session_loop(
         return Ok(());
     }
 
-    let mut session_handle = ssh::start(config, &session.ssh, Arc::new(session_type)).await?;
-    let validation_poll_timeout = config.device.validation_poll_timeout;
+    let mut session_handle = ssh::start(&config, &session.ssh, Arc::new(session_type)).await?;
+    let mut validation_interval = tokio::time::interval(config.device.validation_poll_timeout);
+
+    validation_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    // discard first tick at 0ms
+    validation_interval.tick().await;
 
     loop {
         select! {
-            () = tokio::time::sleep(validation_poll_timeout) => {
-
-
-                match disconnect_if_session_invalid(client, session, &session_handle).await? {
+            _ = validation_interval.tick() => {
+                match disconnect_if_session_invalid(&client, &session, &session_handle).await? {
                     ValidSession::Valid =>
                         continue,
                     _invalid =>
@@ -169,14 +178,24 @@ pub async fn keep_session_loop(
                 };
             },
             event = events.recv() => {
-                debug!("dbus event ({:?}) received while ssh session is active", event?);
-                debug!("checking session is still valid");
-                match disconnect_if_session_invalid(client, session, &session_handle).await? {
-                    ValidSession::Valid => {
-                        continue
+                match event {
+                    Ok(Event::DbusPollRasNow(_)) => {
+                        // a D-Bus poll request means something changed in RAS; re-check now
+                        // instead of waiting up to validation_poll_timeout
+                        debug!("event ({event:?}) received while ssh session is active");
+                        debug!("checking session is still valid");
+                        match disconnect_if_session_invalid(&client, &session, &session_handle).await? {
+                            ValidSession::Valid =>
+                                validation_interval.reset(),
+                            _invalid =>
+                                break,
+                        };
                     },
-                    _invalid =>
-                        break,
+                    Err(RecvError::Lagged(_)) => {
+                        debug!("events lagged, continuing");
+                    },
+                    Err(err @ RecvError::Closed) =>
+                        return Err(err.into()),
                 };
             },
             r = &mut wait_handle => {
