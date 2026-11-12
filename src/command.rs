@@ -17,20 +17,19 @@ use eyre::OptionExt;
 use log::debug;
 use log::error;
 use log::warn;
+use log::*;
 use nix::fcntl::Flock;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::task::JoinHandle;
-use log::*;
 
-use crate::ValidCommand;
 use crate::data_type::*;
+use crate::ValidCommand;
 
-use crate::Result;
 use crate::torizon::TorizonClient;
 use crate::torizon::UptaneMetadataProvider;
+use crate::Result;
 use serde_json::json;
-
 
 // The goal of persisting command results to disk is to cover the
 // following failure modes:
@@ -328,11 +327,7 @@ pub struct CommandPolling<V: UptaneMetadataProvider = TorizonClient> {
 }
 
 impl<V: UptaneMetadataProvider + 'static> CommandPolling<V> {
-    pub fn new(
-        ras_client: TorizonClient,
-        rac_config: RacConfig,
-        metadata_provider: V,
-    ) -> Self {
+    pub fn new(ras_client: TorizonClient, rac_config: RacConfig, metadata_provider: V) -> Self {
         let persist = CommandStore::new(rac_config.device.commands_dir.clone());
 
         Self {
@@ -477,12 +472,11 @@ impl<V: UptaneMetadataProvider + 'static> CommandPolling<V> {
                 match h.await {
                     Ok(Ok(_)) => {
                         debug!("command loop finished");
-                    },
+                    }
                     Ok(Err(err)) => {
                         error!("command execution failed: {err:?}");
-                    },
-                    Err(err) =>
-                        warn!("command execution loop failed: {err:?}"),
+                    }
+                    Err(err) => warn!("command execution loop failed: {err:?}"),
                 }
                 self.handler = None;
             } else {

@@ -1,7 +1,7 @@
 #![allow(clippy::module_name_repetitions)]
 
-use crate::Event;
 use crate::command::CommandPolling;
+use crate::Event;
 use crate::{data_type::RacConfig, dbus};
 use futures::stream::StreamExt;
 use futures::FutureExt;
@@ -22,11 +22,16 @@ pub async fn start_poll_loop(
 ) {
     let mut ssh_polling = SshPolling::new(ras_client.clone(), rac_cfg.clone());
 
-    let mut command_polling = CommandPolling::new(
-        ras_client.clone(),
-        rac_cfg.clone(),
-        ras_client,
-    );
+    let mut command_polling = if rac_cfg.device.enable_remote_commands {
+        Some(CommandPolling::new(
+            ras_client.clone(),
+            rac_cfg.clone(),
+            ras_client,
+        ))
+    } else {
+        info!("remote commands disabled");
+        None
+    };
 
     let mut poll_interval = tokio::time::interval(rac_cfg.device.poll_timeout);
 
@@ -37,7 +42,9 @@ pub async fn start_poll_loop(
             _ = poll_interval.tick() => {
                 ssh_polling.poll().await;
 
-                command_polling.poll().await;
+                if let Some(cmd_poll) = &mut command_polling {
+                    cmd_poll.poll().await;
+                }
             },
 
             event = events_ch.recv() => {
@@ -49,7 +56,9 @@ pub async fn start_poll_loop(
 
                         ssh_polling.poll().await;
 
-                        command_polling.poll().await;
+                        if let Some(cmd_poll) = &mut command_polling {
+                            cmd_poll.poll().await;
+                        }
                     },
                     Err(RecvError::Lagged(_)) => {
                         debug!("start_poll_loop lagged");
@@ -64,8 +73,6 @@ pub async fn start_poll_loop(
         }
     }
 }
-
-
 
 fn start_dbus_channel(rac_cfg: &RacConfig) -> Box<dyn Stream<Item = Event> + Send + Unpin> {
     if rac_cfg.device.enable_dbus_server {

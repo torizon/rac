@@ -164,7 +164,6 @@ pub async fn start(
     Ok(session)
 }
 
-
 #[derive(Debug)]
 pub struct SshPolling {
     ras_client: TorizonClient,
@@ -226,12 +225,11 @@ impl SshPolling {
                 match h.await {
                     Ok(Ok(_)) => {
                         debug!("ssh session loop finished");
-                    },
+                    }
                     Ok(Err(err)) => {
                         error!("error in ssh loop: {err:?}");
-                    },
-                    Err(err) =>
-                        warn!("error in ssh session loop: {:?}", err),
+                    }
+                    Err(err) => warn!("error in ssh session loop: {:?}", err),
                 }
                 self.handler = None;
                 self.handler_ch = None;

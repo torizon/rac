@@ -54,13 +54,14 @@ client_key_path = "/var/sota/import/pkey.pem"
 
 ### `device`: General device configuration
 
-The `device` section of the config file has three configurable values:
+The `device` section of the config file has the following configurable values:
 
 * `unprivileged_user_group` allows you to set a user and group to drop privileges to after RAC is loaded. RAC generally needs to run as root initially, to be able to access the device's x.509 certificate for connecting to the Torizon API. However, after that there is no need for root privileges anymore, so it is a best practice to drop privileges down to a less-privileged user. This value is of the form `user:group`, e.g. `torizon:torizon`
 * `ssh_private_key_path` configures the location the private key the device will use to open up its tunnel to the server. If the file does not yet exist, a new key will be created (and saved for re-use). This option is mandatory. If `unprivileged_user_group` is set, this file must be owned by the unprivileged user.
 * `local_tuf_repo_path` configures the location where the Uptane metadata will be stored. This option is mandatory.
 * `poll_timeout` configures how frequently RAC should poll the Torizon Platform API to check for a remote session. It defaults to 3 seconds.
 * `validation_poll_timeout` configures how frequently RAC should validate the active SSH session to ensure it remains valid. It defaults to 60 seconds.
+* `enable_remote_commands` controls whether RAC polls the Torizon Platform API for remote commands and executes them. Set it to `false` to disable remote commands. It defaults to `true`.
 
 This configuration should work for a default Torizon OS image:
 
