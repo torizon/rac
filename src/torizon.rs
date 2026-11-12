@@ -368,7 +368,8 @@ impl UptaneRepositoryLoader {
 
                 let res = async {
                     let mut f = tokio::fs::File::create(&local_root).await?;
-                    f.write_all(&fetched_root).await
+                    f.write_all(&fetched_root).await?;
+                    f.sync_all().await
                 };
 
                 if let Err(err) = res.await {
