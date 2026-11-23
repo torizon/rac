@@ -81,6 +81,10 @@ impl TorizonClient {
 
         if response.status() == StatusCode::NOT_FOUND {
             info!("No remote session found for device");
+
+            // drain body to allow connection reuse
+            let _ = response.bytes().await;
+
             return Ok(None);
         }
 
@@ -232,10 +236,9 @@ pub fn notls_http_client(config: &RacConfig) -> Result<reqwest::Client> {
 #[must_use]
 pub fn user_agent() -> String {
     format!(
-        "RAC/{} ({}; {}; rustc-{}-{})",
+        "RAC/{} ({}; rustc-{}-{})",
         env!("VERGEN_GIT_SEMVER"),
         env!("VERGEN_GIT_SHA_SHORT"),
-        env!("VERGEN_BUILD_TIMESTAMP"),
         env!("VERGEN_RUSTC_SEMVER"),
         env!("VERGEN_CARGO_TARGET_TRIPLE"),
     )

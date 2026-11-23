@@ -48,6 +48,8 @@ pub struct DeviceConfig {
     pub unprivileged_user_group: Option<String>,
     #[serde(skip_serializing, default = "default_enable_dbus_server")]
     pub enable_dbus_server: bool,
+    #[serde(default = "default_enable_remote_commands")]
+    pub enable_remote_commands: bool,
     #[serde(skip_serializing, default = "default_commands_dir")]
     pub commands_dir: PathBuf,
     #[serde(skip_serializing, default = "default_commands_timeout")]
@@ -184,6 +186,7 @@ impl Default for DeviceConfig {
             session: LocalSession::default(),
             unprivileged_user_group: None,
             enable_dbus_server: default_enable_dbus_server(),
+            enable_remote_commands: default_enable_remote_commands(),
             commands_dir: default_commands_dir(),
             commands_timeout: default_commands_timeout(),
         }
@@ -218,6 +221,10 @@ fn default_local_config_path() -> PathBuf {
 
 fn default_enable_dbus_server() -> bool {
     false
+}
+
+fn default_enable_remote_commands() -> bool {
+    true
 }
 
 fn default_commands_dir() -> PathBuf {

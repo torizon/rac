@@ -31,10 +31,10 @@ use axum::{
 };
 use rac::{
     data_type::{DeviceSession, LocalSession, RacConfig, SshSession},
-    dbus::Event,
     device_keys,
     local_session::{EmbeddedSession, SpawnedSshdSession, TargetHostSession},
     torizon::{self, TorizonClient},
+    Event,
 };
 use russh::server::{Auth, Server, Session};
 use ssh_key::rand_core::OsRng;
@@ -427,8 +427,8 @@ async fn full_no_error() {
     let session_rport = session.ssh.reverse_port;
 
     let session_handler = tokio::spawn(async move {
-        let (_tx, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
+        let (_tx, dbus_events) = tokio::sync::broadcast::channel::<rac::Event>(10);
+        rac::keep_session_loop(rac_config, torizon_client, session, dbus_events)
             .await
             .unwrap();
     });
@@ -479,8 +479,8 @@ async fn test_director_error() {
         .unwrap();
 
     let session_handler = tokio::spawn(async move {
-        let (_, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events).await
+        let (_tx, dbus_events) = tokio::sync::broadcast::channel::<rac::Event>(10);
+        rac::keep_session_loop(rac_config, torizon_client, session, dbus_events).await
     });
 
     match tokio::time::timeout(Duration::from_secs(2), session_handler).await {
@@ -514,8 +514,8 @@ async fn test_keys_changed() {
         .unwrap();
 
     let session_handler = tokio::spawn(async move {
-        let (_, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
+        let (_tx, dbus_events) = tokio::sync::broadcast::channel::<rac::Event>(10);
+        rac::keep_session_loop(rac_config, torizon_client, session, dbus_events)
             .await
             .unwrap();
     });
@@ -557,10 +557,10 @@ async fn test_keys_changed_without_poll() {
         .await
         .unwrap();
 
-    let (tx, mut rx) = tokio::sync::broadcast::channel(1);
+    let (tx, rx) = tokio::sync::broadcast::channel(1);
 
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut rx)
+        rac::keep_session_loop(rac_config, torizon_client, session, rx)
             .await
             .unwrap();
     });
@@ -577,7 +577,8 @@ async fn test_keys_changed_without_poll() {
         session.ssh.authorized_pubkeys.clear();
     }
 
-    tx.send(Event::PollRasNow(serde_json::Value::Null)).unwrap();
+    tx.send(Event::DbusPollRasNow(serde_json::Value::Null))
+        .unwrap();
 
     if let Err(err) = tokio::time::timeout(Duration::from_secs(5), session_handler).await {
         panic!("session did not end after 5 seconds: {err:?}")
@@ -600,10 +601,10 @@ async fn test_director_changed() {
         .await
         .unwrap();
 
-    let (_, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
+    let (_tx, dbus_events) = tokio::sync::broadcast::channel::<rac::Event>(10);
 
     let session_handler = tokio::spawn(async move {
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
+        rac::keep_session_loop(rac_config, torizon_client, session, dbus_events)
             .await
             .unwrap();
     });
@@ -705,8 +706,8 @@ async fn test_embedded_server() {
         .unwrap();
 
     tokio::spawn(async move {
-        let (_tx, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
+        let (_tx, dbus_events) = tokio::sync::broadcast::channel::<rac::Event>(10);
+        rac::keep_session_loop(rac_config, torizon_client, session, dbus_events)
             .await
             .unwrap();
     });
@@ -768,8 +769,8 @@ async fn test_spawned_sshd() {
         .unwrap();
 
     let _session_handler = tokio::spawn(async move {
-        let (_tx, mut dbus_events) = tokio::sync::broadcast::channel::<rac::dbus::Event>(10);
-        rac::keep_session_loop(&rac_config, &torizon_client, &session, &mut dbus_events)
+        let (_tx, dbus_events) = tokio::sync::broadcast::channel::<rac::Event>(10);
+        rac::keep_session_loop(rac_config, torizon_client, session, dbus_events)
             .await
             .unwrap();
     });
