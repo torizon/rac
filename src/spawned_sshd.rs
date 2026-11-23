@@ -78,6 +78,7 @@ PrintLastLog no
         .await?;
 
     file.write_all(cfg.as_bytes()).await?;
+    file.sync_all().await?;
 
     let config_file = std::fs::canonicalize(&config_file)?;
 

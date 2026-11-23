@@ -55,6 +55,7 @@ pub async fn update_keys(authorized_keys: impl AsRef<Path>, new_keys: &[PublicKe
     }
 
     file.flush().await?;
+    file.sync_all().await?;
 
     Ok(())
 }
